@@ -45,15 +45,17 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ${{ env.IMAGE_REF }},${{ env.IMAGE_REF_CHANNEL }}
           build-args: |
             VERSION=${{ env.IMAGE_TAG }}
             COMMIT=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
           provenance: false
+
+      - name: Prune buildx cache to save runner disk
+        if: always()
+        run: docker buildx prune -af --filter "until=24h" || true
 
       - name: Ensure namespace
         run: kubectl create namespace "${NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
