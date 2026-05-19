@@ -75,9 +75,8 @@ spec:
               value: {{ .Values.env.nodeRole | quote }}
             - name: NODE_KEY
               valueFrom:
-                secretKeyRef:
-                  name: {{ required "secrets.nodeKeySecretName required" .Values.secrets.nodeKeySecretName }}
-                  key: {{ .Values.secrets.nodeKeySecretKey }}
+                fieldRef:
+                  fieldPath: spec.nodeName
             - name: BOOTSTRAP_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -19,16 +19,14 @@ env:
   heartbeatInterval: 10s
 
 secrets:
-  bootstrapTokenSecretName: go-node-agent-dev-env
-  bootstrapTokenSecretKey: BOOTSTRAP_TOKEN
-  nodeKeySecretName: go-node-agent-dev-env
-  nodeKeySecretKey: NODE_KEY
+  bootstrapTokenSecretName: go-node-agent-dev-bootstrap
+  bootstrapTokenSecretKey: token
 
 externalSecret:
   enabled: true
   storeName: vault
-  vaultPath: go-node-agent/dev/env
-  targetName: go-node-agent-dev-env
+  vaultPath: vpn/bootstrap-token
+  targetName: go-node-agent-dev-bootstrap
   refreshInterval: 5m
 
 podAnnotations:
