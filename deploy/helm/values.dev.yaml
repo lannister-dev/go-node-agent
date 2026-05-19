@@ -25,7 +25,7 @@ secrets:
 externalSecret:
   enabled: true
   storeName: vault
-  vaultPath: vpn/bootstrap-token
+  vaultPath: go-node-agent/dev/env
   targetName: go-node-agent-dev-bootstrap
   refreshInterval: 5m
 
