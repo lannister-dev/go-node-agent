@@ -1,16 +1,17 @@
 image:
-  repository: harbor.lannister-dev.ru/vpn/node-agent
+  repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
   tag: ""
   pullPolicy: IfNotPresent
 
-imagePullSecrets: []
+imagePullSecrets:
+  - name: harbor-registry
 
 nameOverride: ""
 fullnameOverride: ""
 
 nodeSelector:
   role: vpn
-  agent: go
+  channel: dev
 
 tolerations: []
 priorityClassName: ""
@@ -73,6 +74,13 @@ secrets:
   bootstrapTokenSecretKey: bootstrap_token
   nodeKeySecretName: ""
   nodeKeySecretKey: node_key
+
+externalSecret:
+  enabled: false
+  storeName: vault
+  vaultPath: ""
+  targetName: ""
+  refreshInterval: 5m
 
 storage:
   hostPath: /var/lib/go-node-agent

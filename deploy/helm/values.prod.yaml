@@ -1,39 +1,42 @@
 image:
   repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
-  tag: dev
-  pullPolicy: Always
+  tag: prod
+  pullPolicy: IfNotPresent
 
 imagePullSecrets:
   - name: harbor-registry
 
 nodeSelector:
   role: vpn
-  channel: dev
+  channel: prod
 
 env:
-  controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
+  controlApiURL: http://control-api.vpn-prod.svc.cluster.local:8000
   natsURL: nats://nats.nats.svc.cluster.local:4222
   nodeRole: entry
-  logLevel: debug
+  logLevel: info
   logFormat: json
   heartbeatInterval: 10s
 
 secrets:
-  bootstrapTokenSecretName: go-node-agent-dev-env
+  bootstrapTokenSecretName: go-node-agent-prod-env
   bootstrapTokenSecretKey: BOOTSTRAP_TOKEN
-  nodeKeySecretName: go-node-agent-dev-env
+  nodeKeySecretName: go-node-agent-prod-env
   nodeKeySecretKey: NODE_KEY
 
 externalSecret:
   enabled: true
   storeName: vault
-  vaultPath: go-node-agent/dev/env
-  targetName: go-node-agent-dev-env
+  vaultPath: go-node-agent/prod/env
+  targetName: go-node-agent-prod-env
   refreshInterval: 5m
 
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8080"
   prometheus.io/path: "/metrics"
-  prometheus-env: dev
+  prometheus-env: prod
   prometheus-app: go-node-agent
+
+executor:
+  enabled: false
