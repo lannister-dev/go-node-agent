@@ -1,0 +1,17 @@
+{{ include "go-node-agent.fullname" . }} installed in {{ .Release.Namespace }}.
+
+Verify the agent is running on labeled nodes:
+
+  kubectl -n {{ .Release.Namespace }} get ds {{ include "go-node-agent.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "go-node-agent.name" . }} -o wide
+
+View logs on one pod:
+
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/name={{ include "go-node-agent.name" . }} --tail=100 -f
+
+Port-forward to admin HTTP (healthz / metrics / pprof):
+
+  kubectl -n {{ .Release.Namespace }} port-forward ds/{{ include "go-node-agent.fullname" . }} 8080:8080
+  curl http://localhost:8080/healthz
+  curl http://localhost:8080/readyz
+  curl http://localhost:8080/metrics

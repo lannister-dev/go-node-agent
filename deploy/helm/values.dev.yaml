@@ -1,0 +1,29 @@
+image:
+  repository: harbor.lannister-dev.ru/vpn/node-agent
+  tag: dev
+  pullPolicy: Always
+
+nodeSelector:
+  role: vpn
+  agent: go-observer
+
+env:
+  controlApiURL: https://dev.lannister-dev.ru
+  natsURL: nats://nats.nats.svc.cluster.local:4222
+  nodeRole: entry
+  logLevel: debug
+  logFormat: json
+  heartbeatInterval: 10s
+
+secrets:
+  bootstrapTokenSecretName: go-node-agent-bootstrap-dev
+  bootstrapTokenSecretKey: token
+  nodeKeySecretName: go-node-agent-nodekey-dev
+  nodeKeySecretKey: key
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+  prometheus-env: dev
+  prometheus-app: go-node-agent

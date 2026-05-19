@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+import "vpn/agent/v1/agent.proto";
+
+message PlacementCommandEvent {
+  AgentEnvelope envelope = 1;
+  string event_id = 2;
+  string placement_id = 3;
+  string key_id = 4;
+  uint64 op_version = 5;
+  DesiredState desired_state = 6;
+  string backend_node_id = 7;
+  Protocol protocol = 8;
+  TransportKind transport = 9;
+  string client_id = 10;
+  bool is_revoked = 11;
+  bool snapshot_complete = 12;
+  optional google.protobuf.Timestamp valid_until = 13;
+  optional google.protobuf.Timestamp updated_at = 14;
+}
+
+message PlacementApplyResultEvent {
+  AgentEnvelope envelope = 1;
+  string event_id = 2;
+  string placement_id = 3;
+  uint64 op_version = 4;
+  AppliedState applied_state = 5;
+  optional ReportStatus report_status = 6;
+  bool retryable = 7;
+  optional string error = 8;
+  optional string inventory_hash = 9;
+  optional uint64 inventory_count = 10;
+}
+
+message PlacementApplyAckEvent {
+  AgentEnvelope envelope = 1;
+  string event_id = 2;
+  string placement_id = 3;
+  uint64 op_version = 4;
+  ReportStatus status = 5;
+  optional string error = 6;
+}

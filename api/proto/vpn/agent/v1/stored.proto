@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+import "vpn/agent/v1/agent.proto";
+
+message StoredPlacement {
+  string id = 1;
+  string key_id = 2;
+  string client_id = 3;
+  string node_id = 4;
+  string backend_node_id = 5;
+  uint64 op_version = 6;
+  DesiredState desired_state = 7;
+  AppliedState applied_state = 8;
+  TransportKind transport = 9;
+  Protocol protocol = 10;
+  bool is_revoked = 11;
+  optional google.protobuf.Timestamp valid_until = 12;
+  optional google.protobuf.Timestamp updated_at = 13;
+  optional google.protobuf.Timestamp last_applied_at = 14;
+}
+
+message StoredIdentity {
+  string node_id = 1;
+  string agent_instance_id = 2;
+  string auth_token = 3;
+  google.protobuf.Timestamp bootstrapped_at = 4;
+}

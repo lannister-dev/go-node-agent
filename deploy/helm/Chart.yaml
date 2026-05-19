@@ -1,0 +1,13 @@
+apiVersion: v2
+name: go-node-agent
+description: Edge VPN node agent (Go) — drop-in replacement for Python node-agent
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/lannister-dev/go-node-agent
+keywords:
+  - vpn
+  - node-agent
+  - edge
+sources:
+  - https://github.com/lannister-dev/go-node-agent

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message HeartbeatPoolHealth {
+  uint32 slots_total = 1;
+  uint32 slots_active = 2;
+  uint32 desired_backends = 3;
+  uint32 dropped_overflow = 4;
+  bool last_apply_ok = 5;
+  optional string last_apply_error = 6;
+  uint32 consecutive_apply_failures = 7;
+  uint32 last_applied_generation = 8;
+  optional google.protobuf.Timestamp last_applied_at = 9;
+}
+
+message HeartbeatUpstreamHealth {
+  bool configured = 1;
+  bool last_apply_ok = 2;
+  optional string last_apply_error = 3;
+  uint32 consecutive_apply_failures = 4;
+  optional string upstream_node_id = 5;
+  optional string upstream_host = 6;
+  optional string upstream_addr = 7;
+  optional google.protobuf.Timestamp last_applied_at = 8;
+}
+
+message HeartbeatEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+  string agent_version = 5;
+  bool is_healthy = 6;
+  bool ready = 7;
+  optional string last_error = 8;
+  uint32 poll_count = 9;
+  uint32 applied = 10;
+  uint32 failed = 11;
+  optional double cpu_pct = 12;
+  optional double mem_pct = 13;
+  optional double bandwidth_pct = 14;
+  optional HeartbeatPoolHealth pool = 15;
+  optional HeartbeatUpstreamHealth upstream = 16;
+}

@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+import "vpn/agent/v1/agent.proto";
+
+message SyncReportEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+  uint32 synced_count = 5;
+  optional uint64 config_version = 6;
+  optional string inventory_hash = 7;
+  optional uint64 inventory_count = 8;
+  bool full_resync_completed = 9;
+}
+
+message SyncReportAckEvent {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+  SyncReportAckStatus status = 5;
+  optional string error = 6;
+}

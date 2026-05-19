@@ -1,0 +1,181 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "go-node-agent.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "go-node-agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "go-node-agent.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  template:
+    metadata:
+      labels:
+        {{- include "go-node-agent.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "go-node-agent.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      hostNetwork: {{ .Values.hostNetwork }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: agent
+          image: "{{ .Values.image.repository }}:{{ include "go-node-agent.imageTag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CONTROL_API_URL
+              value: {{ .Values.env.controlApiURL | quote }}
+            - name: NATS_URL
+              value: {{ .Values.env.natsURL | quote }}
+            - name: NODE_ROLE
+              value: {{ .Values.env.nodeRole | quote }}
+            - name: NODE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "secrets.nodeKeySecretName required" .Values.secrets.nodeKeySecretName }}
+                  key: {{ .Values.secrets.nodeKeySecretKey }}
+            - name: BOOTSTRAP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "secrets.bootstrapTokenSecretName required" .Values.secrets.bootstrapTokenSecretName }}
+                  key: {{ .Values.secrets.bootstrapTokenSecretKey }}
+            - name: LOG_LEVEL
+              value: {{ .Values.env.logLevel | quote }}
+            - name: LOG_FORMAT
+              value: {{ .Values.env.logFormat | quote }}
+            - name: HTTP_ADDR
+              value: ":8080"
+            - name: HEARTBEAT_INTERVAL
+              value: {{ .Values.env.heartbeatInterval | quote }}
+            - name: DRAIN_TIMEOUT
+              value: {{ .Values.env.drainTimeout | quote }}
+            - name: NATS_NAME
+              value: "go-node-agent-$(NODE_NAME)"
+            - name: NATS_COMMAND_PREFIX
+              value: {{ .Values.env.natsCommandPrefix | quote }}
+            - name: NATS_RESULT_PREFIX
+              value: {{ .Values.env.natsResultPrefix | quote }}
+            - name: NATS_SNAPSHOT_PREFIX
+              value: {{ .Values.env.natsSnapshotPrefix | quote }}
+            - name: NATS_HEARTBEAT_PREFIX
+              value: {{ .Values.env.natsHeartbeatPrefix | quote }}
+            - name: NATS_SYNC_REPORT_PREFIX
+              value: {{ .Values.env.natsSyncReportPrefix | quote }}
+            - name: STORE_PATH
+              value: /var/lib/go-node-agent
+            - name: HAPROXY_SOCKET
+              value: /var/run/haproxy/{{ .Values.haproxy.socketName }}
+            - name: SINGBOX_CONFIG_PATH
+              value: /var/lib/sing-box-shared/sing-box/config.json
+            - name: ENABLE_EXECUTOR
+              value: {{ .Values.executor.enabled | quote }}
+            - name: SINGBOX_INBOUND_TAG
+              value: {{ .Values.executor.singbox.inboundTag | quote }}
+            - name: SINGBOX_LISTEN_ADDRESS
+              value: {{ .Values.executor.singbox.listenAddress | quote }}
+            - name: SINGBOX_LISTEN_PORT
+              value: {{ .Values.executor.singbox.listenPort | quote }}
+            - name: SINGBOX_LOG_LEVEL
+              value: {{ .Values.executor.singbox.logLevel | quote }}
+            - name: BACKEND_DEFAULT_PORT
+              value: {{ .Values.executor.backendDefaults.port | quote }}
+            - name: BACKEND_DEFAULT_TRANSPORT
+              value: {{ .Values.executor.backendDefaults.transport | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.probes.startup.enabled }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.liveness.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
+          {{- if .Values.probes.readiness.enabled }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
+          volumeMounts:
+            - name: store
+              mountPath: /var/lib/go-node-agent
+            - name: haproxy-sock
+              mountPath: /var/run/haproxy
+            - name: singbox-config
+              mountPath: /var/lib/sing-box-shared
+              readOnly: false
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: store
+          hostPath:
+            path: {{ .Values.storage.hostPath }}
+            type: DirectoryOrCreate
+        - name: haproxy-sock
+          hostPath:
+            path: {{ .Values.haproxy.socketHostPath }}
+            type: DirectoryOrCreate
+        - name: singbox-config
+          hostPath:
+            path: {{ .Values.singbox.configHostPath }}
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}

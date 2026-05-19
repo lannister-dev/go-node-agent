@@ -1,0 +1,112 @@
+image:
+  repository: harbor.lannister-dev.ru/vpn/node-agent
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+nodeSelector:
+  role: vpn
+  agent: go
+
+tolerations: []
+priorityClassName: ""
+hostNetwork: false
+dnsPolicy: ClusterFirst
+
+podLabels: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+podSecurityContext:
+  fsGroup: 65532
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+env:
+  controlApiURL: ""
+  natsURL: nats://nats.nats.svc.cluster.local:4222
+  nodeRole: entry
+  logLevel: info
+  logFormat: json
+  heartbeatInterval: 10s
+  drainTimeout: 30s
+  natsCommandPrefix: agent.placements
+  natsResultPrefix: agent.placement_results
+  natsSnapshotPrefix: agent.snapshots
+  natsHeartbeatPrefix: agent.heartbeats
+  natsSyncReportPrefix: agent.sync_reports
+
+executor:
+  enabled: false
+  singbox:
+    inboundTag: vless-in
+    listenAddress: "::"
+    listenPort: 443
+    logLevel: info
+  backendDefaults:
+    port: 9000
+    transport: ws
+
+secrets:
+  bootstrapTokenSecretName: ""
+  bootstrapTokenSecretKey: bootstrap_token
+  nodeKeySecretName: ""
+  nodeKeySecretKey: node_key
+
+storage:
+  hostPath: /var/lib/go-node-agent
+
+haproxy:
+  socketHostPath: /var/run/haproxy
+  socketName: admin.sock
+
+singbox:
+  configHostPath: /var/lib/sing-box-shared
+
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 15
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 3
+  startup:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    failureThreshold: 30
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 8080
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 1

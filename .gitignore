@@ -1,0 +1,13 @@
+/bin/
+/dist/
+/coverage.out
+/coverage.html
+*.test
+*.prof
+.env
+.env.local
+.idea/workspace.xml
+.idea/tasks.xml
+.idea/shelf/
+.DS_Store
+vendor/

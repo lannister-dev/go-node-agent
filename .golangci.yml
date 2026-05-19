@@ -1,0 +1,84 @@
+version: "2"
+
+run:
+  timeout: 5m
+  go: "1.26"
+  tests: true
+  modules-download-mode: readonly
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosec
+    - gocritic
+    - revive
+    - errorlint
+    - exhaustive
+    - prealloc
+    - unparam
+    - wastedassign
+    - nilerr
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - misspell
+    - whitespace
+    - nolintlint
+    - dupl
+    - goconst
+    - copyloopvar
+    - intrange
+    - perfsprint
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+        - shadow
+    gosec:
+      excludes:
+        - G104
+        - G304
+    gocritic:
+      enabled-tags: [diagnostic, performance, style]
+      disabled-checks: [paramTypeCombine, hugeParam, rangeValCopy, unnamedResult]
+    revive:
+      severity: warning
+      rules:
+        - name: var-naming
+        - name: error-return
+        - name: error-strings
+        - name: context-as-argument
+        - name: indent-error-flow
+        - name: range-val-in-closure
+        - name: time-naming
+        - name: errorf
+    exhaustive:
+      default-signifies-exhaustive: true
+    errcheck:
+      exclude-functions:
+        - (io.Closer).Close
+        - (net.Conn).Close
+        - (net.Listener).Close
+        - (*net/http.Response).Body.Close
+        - (io.ReadCloser).Close
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters: [gosec, dupl, goconst, gocritic, unparam, errcheck]
+      - path: cmd/
+        linters: [gochecknoinits, gochecknoglobals]
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

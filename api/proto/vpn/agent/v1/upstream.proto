@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message UpstreamChangedPayload {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+  string upstream_node_id = 5;
+  string upstream_public_domain = 6;
+  optional string upstream_reality_ip = 7;
+}
+
+message PoolChangedPayload {
+  uint32 schema_version = 1;
+  string event_id = 2;
+  string node_id = 3;
+  google.protobuf.Timestamp emitted_at = 4;
+  repeated PoolSlot slots = 5;
+}
+
+message PoolSlot {
+  uint32 slot_index = 1;
+  string backend_node_id = 2;
+  string addr = 3;
+  uint32 port = 4;
+}

@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message AgentEnvelope {
+  uint32 schema_version = 1;
+  string node_id = 2;
+  google.protobuf.Timestamp emitted_at = 3;
+  optional string snapshot_id = 4;
+  optional uint64 epoch = 5;
+}
+
+enum DesiredState {
+  DESIRED_STATE_UNSPECIFIED = 0;
+  DESIRED_STATE_ACTIVE = 1;
+  DESIRED_STATE_INACTIVE = 2;
+}
+
+enum AppliedState {
+  APPLIED_STATE_UNSPECIFIED = 0;
+  APPLIED_STATE_PENDING = 1;
+  APPLIED_STATE_APPLIED = 2;
+  APPLIED_STATE_ERROR = 3;
+}
+
+enum ReportStatus {
+  REPORT_STATUS_UNSPECIFIED = 0;
+  REPORT_STATUS_APPLIED = 1;
+  REPORT_STATUS_PENDING = 2;
+  REPORT_STATUS_ERROR = 3;
+  REPORT_STATUS_SKIPPED_STALE = 4;
+  REPORT_STATUS_SKIPPED_IDEMPOTENT = 5;
+}
+
+enum Protocol {
+  PROTOCOL_UNSPECIFIED = 0;
+  PROTOCOL_VLESS = 1;
+}
+
+enum TransportKind {
+  TRANSPORT_KIND_UNSPECIFIED = 0;
+  TRANSPORT_KIND_WS = 1;
+  TRANSPORT_KIND_XHTTP = 2;
+  TRANSPORT_KIND_TCP = 3;
+  TRANSPORT_KIND_REALITY = 4;
+}
+
+enum SnapshotRequestReason {
+  SNAPSHOT_REQUEST_REASON_UNSPECIFIED = 0;
+  SNAPSHOT_REQUEST_REASON_STARTUP = 1;
+  SNAPSHOT_REQUEST_REASON_XRAY_RESTART = 2;
+  SNAPSHOT_REQUEST_REASON_REDELIVERY_GAP = 3;
+  SNAPSHOT_REQUEST_REASON_OPERATOR_FORCED = 4;
+}
+
+enum SyncReportAckStatus {
+  SYNC_REPORT_ACK_STATUS_UNSPECIFIED = 0;
+  SYNC_REPORT_ACK_STATUS_ACCEPTED = 1;
+  SYNC_REPORT_ACK_STATUS_SKIPPED = 2;
+}

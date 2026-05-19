@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+docs
+test
+deploy
+bin
+dist
+*.md
+.gitignore
+.dockerignore
+.golangci.yml
+Makefile

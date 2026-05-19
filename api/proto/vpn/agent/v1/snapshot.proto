@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package vpn.agent.v1;
+
+import "google/protobuf/timestamp.proto";
+import "vpn/agent/v1/agent.proto";
+import "vpn/agent/v1/placement.proto";
+
+message SnapshotRequestEvent {
+  uint32 schema_version = 1;
+  string node_id = 2;
+  google.protobuf.Timestamp requested_at = 3;
+  SnapshotRequestReason reason = 4;
+  optional string known_snapshot_id = 5;
+  optional uint64 last_command_stream_seq = 6;
+  optional uint64 last_seen_xray_uptime = 7;
+}
+
+message SnapshotChunkEvent {
+  AgentEnvelope envelope = 1;
+  uint32 chunk_index = 2;
+  bool is_last_chunk = 3;
+  repeated PlacementCommandEvent items = 4;
+}
