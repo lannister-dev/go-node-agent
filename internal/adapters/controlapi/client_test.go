@@ -38,7 +38,7 @@ func validReq() ports.InitialRequest {
 func TestInitial_Success(t *testing.T) {
 	var gotHeaders http.Header
 	c, _ := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/agent/initial" {
+		if r.URL.Path != "/api/v1/agent/initial" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {

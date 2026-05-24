@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	pathInitial    = "/api/agent/initial"
+	pathInitial    = "/api/v1/agent/initial"
 	maxBodyBytes   = 1 << 20
 	headerNodeKey  = "X-Node-Key"
 	headerAgentID  = "X-Agent-Instance-ID"
