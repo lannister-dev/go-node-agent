@@ -60,8 +60,8 @@ func (f *fakeActions) record(name string) {
 	f.order = append(f.order, name)
 }
 
-func (f *fakeActions) WarmBackend(_ context.Context, _ domain.FlipPlan) error {
-	f.record("warm")
+func (f *fakeActions) ValidateBackend(_ context.Context, _ domain.FlipPlan) error {
+	f.record("validate")
 	return f.warmErr
 }
 
@@ -129,7 +129,7 @@ func TestOrchestrator_HappyPath(t *testing.T) {
 	if plan.State != domain.FlipSteady {
 		t.Errorf("final state: %s", plan.State)
 	}
-	want := []string{"warm", "swap", "cool"}
+	want := []string{"validate", "swap", "cool"}
 	if got := actions.callOrder(); !equalSlices(got, want) {
 		t.Errorf("order: got %v, want %v", got, want)
 	}
@@ -148,24 +148,24 @@ func TestOrchestrator_DrainTimeoutForceCloses(t *testing.T) {
 		t.Fatalf("expected ErrDrainTimeout, got %v", err)
 	}
 	got := actions.callOrder()
-	if len(got) != 2 || got[0] != "warm" || got[1] != "swap" {
-		t.Errorf("only warm+swap should run before timeout, got %v", got)
+	if len(got) != 2 || got[0] != "validate" || got[1] != "swap" {
+		t.Errorf("only validate+swap should run before timeout, got %v", got)
 	}
 	if containsStr(got, "cool") {
 		t.Error("cool should not run after drain timeout")
 	}
 }
 
-func TestOrchestrator_WarmFailureAborts(t *testing.T) {
-	actions := &fakeActions{warmErr: errors.New("xray add user failed")}
+func TestOrchestrator_ValidateFailureAborts(t *testing.T) {
+	actions := &fakeActions{warmErr: errors.New("backend not in registry")}
 	o, _ := newOrch(t, actions)
 	_, err := o.Execute(t.Context(), newPlan())
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	got := actions.callOrder()
-	if len(got) != 1 || got[0] != "warm" {
-		t.Errorf("expected warm only, got %v", got)
+	if len(got) != 1 || got[0] != "validate" {
+		t.Errorf("expected validate only, got %v", got)
 	}
 }
 
@@ -177,8 +177,8 @@ func TestOrchestrator_SwapFailureAbortsBeforeDrain(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	got := actions.callOrder()
-	if len(got) != 2 || got[1] != "swap" {
-		t.Errorf("expected warm+swap, got %v", got)
+	if len(got) != 2 || got[0] != "validate" || got[1] != "swap" {
+		t.Errorf("expected validate+swap, got %v", got)
 	}
 	if actions.connQueries.Load() != 0 {
 		t.Error("drain should not poll on swap failure")
@@ -196,7 +196,7 @@ func TestOrchestrator_CoolFailureSurfacesError(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	got := actions.callOrder()
-	want := []string{"warm", "swap", "cool"}
+	want := []string{"validate", "swap", "cool"}
 	if !equalSlices(got, want) {
 		t.Errorf("order: %v", got)
 	}

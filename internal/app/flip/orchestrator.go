@@ -118,13 +118,15 @@ func (o *Orchestrator) runPhase(ctx context.Context, plan domain.FlipPlan, targe
 	case domain.FlipAnnounced:
 		err = nil
 	case domain.FlipWarming:
-		err = o.actions.WarmBackend(ctx, plan)
+		err = o.actions.ValidateBackend(ctx, plan)
 	case domain.FlipSwap:
 		err = o.actions.SwapRoute(ctx, plan)
 	case domain.FlipCooling:
 		err = o.drain(ctx, plan)
-	case domain.FlipSteady:
+	case domain.FlipCool:
 		err = o.actions.CoolOldBackend(ctx, plan)
+	case domain.FlipSteady:
+		err = nil
 	default:
 		err = fmt.Errorf("unknown target state %q", target)
 	}

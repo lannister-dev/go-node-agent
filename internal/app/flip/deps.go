@@ -8,7 +8,7 @@ import (
 )
 
 type Actions interface {
-	WarmBackend(ctx context.Context, plan domain.FlipPlan) error
+	ValidateBackend(ctx context.Context, plan domain.FlipPlan) error
 	SwapRoute(ctx context.Context, plan domain.FlipPlan) error
 	OldBackendConnections(ctx context.Context, plan domain.FlipPlan) (uint64, error)
 	CoolOldBackend(ctx context.Context, plan domain.FlipPlan) error

@@ -53,11 +53,11 @@ func NewEntryActions(cfg EntryActionsConfig, sb SingBoxControl, store PlacementS
 	}, nil
 }
 
-func (a *EntryActions) WarmBackend(_ context.Context, plan domain.FlipPlan) error {
+func (a *EntryActions) ValidateBackend(_ context.Context, plan domain.FlipPlan) error {
 	if _, ok := a.backends.Get(plan.NewBackend); !ok {
-		return fmt.Errorf("warm: new backend %s not in registry", plan.NewBackend)
+		return fmt.Errorf("validate: new backend %s not in registry", plan.NewBackend)
 	}
-	a.log.Debug("warm verified", "new_backend", plan.NewBackend, "placement_id", plan.PlacementID)
+	a.log.Debug("backend validated", "new_backend", plan.NewBackend, "placement_id", plan.PlacementID)
 	return nil
 }
 
@@ -68,14 +68,23 @@ func (a *EntryActions) SwapRoute(ctx context.Context, plan domain.FlipPlan) erro
 	if plan.Desired.ID != plan.PlacementID {
 		return fmt.Errorf("swap: plan.Desired.ID %q != plan.PlacementID %q", plan.Desired.ID, plan.PlacementID)
 	}
+	current, _, err := a.store.GetPlacement(ctx, plan.PlacementID)
+	if err != nil {
+		return fmt.Errorf("swap: load current placement: %w", err)
+	}
+	if plan.OpVersion != 0 && current.OpVersion >= plan.OpVersion {
+		a.log.Warn("swap: stale op_version, skipping",
+			"placement_id", plan.PlacementID,
+			"plan_op_version", plan.OpVersion,
+			"current_op_version", current.OpVersion,
+		)
+		return nil
+	}
 	desired := plan.Desired
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
-	if err := a.store.PutPlacement(ctx, desired); err != nil {
-		return fmt.Errorf("swap: persist placement: %w", err)
-	}
 
-	data, err := a.renderConfig(ctx)
+	data, err := a.renderConfigWith(ctx, &desired)
 	if err != nil {
 		return fmt.Errorf("swap: render config: %w", err)
 	}
@@ -84,6 +93,9 @@ func (a *EntryActions) SwapRoute(ctx context.Context, plan domain.FlipPlan) erro
 	}
 	if err := a.singbox.Reload(ctx); err != nil {
 		return fmt.Errorf("swap: reload sing-box: %w", err)
+	}
+	if err := a.store.PutPlacement(ctx, desired); err != nil {
+		return fmt.Errorf("swap: persist placement: %w", err)
 	}
 	a.log.Info("route swapped",
 		"placement_id", plan.PlacementID,
@@ -126,12 +138,22 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 			return fmt.Errorf("simple-apply: backend %s not in registry", desired.BackendNodeID)
 		}
 	}
+	current, _, err := a.store.GetPlacement(ctx, desired.ID)
+	if err != nil {
+		return fmt.Errorf("simple-apply: load current placement: %w", err)
+	}
+	if desired.OpVersion != 0 && current.OpVersion >= desired.OpVersion {
+		a.log.Warn("simple-apply: stale op_version, skipping",
+			"placement_id", desired.ID,
+			"incoming_op_version", desired.OpVersion,
+			"current_op_version", current.OpVersion,
+		)
+		return nil
+	}
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
-	if err := a.store.PutPlacement(ctx, desired); err != nil {
-		return fmt.Errorf("simple-apply: persist: %w", err)
-	}
-	data, err := a.renderConfig(ctx)
+
+	data, err := a.renderConfigWith(ctx, &desired)
 	if err != nil {
 		return fmt.Errorf("simple-apply: render: %w", err)
 	}
@@ -140,6 +162,9 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 	}
 	if err := a.singbox.Reload(ctx); err != nil {
 		return fmt.Errorf("simple-apply: reload: %w", err)
+	}
+	if err := a.store.PutPlacement(ctx, desired); err != nil {
+		return fmt.Errorf("simple-apply: persist: %w", err)
 	}
 	a.log.Debug("simple-apply complete",
 		"placement_id", desired.ID,
@@ -165,9 +190,16 @@ func (a *EntryActions) RebuildFromStore(ctx context.Context) error {
 }
 
 func (a *EntryActions) renderConfig(ctx context.Context) ([]byte, error) {
+	return a.renderConfigWith(ctx, nil)
+}
+
+func (a *EntryActions) renderConfigWith(ctx context.Context, overlay *domain.Placement) ([]byte, error) {
 	placements, err := a.store.ListPlacements(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if overlay != nil {
+		placements = applyPlacementOverlay(placements, *overlay)
 	}
 	state := singboxgen.NodeState{
 		Log:        a.logCfg,
@@ -177,14 +209,34 @@ func (a *EntryActions) renderConfig(ctx context.Context) ([]byte, error) {
 		Placements: placements,
 	}
 	if a.configPath != "" {
-		if base, rerr := os.ReadFile(a.configPath); rerr == nil && len(base) > 0 {
+		base, rerr := os.ReadFile(a.configPath)
+		if rerr != nil {
+			return nil, fmt.Errorf("read base config %q: %w", a.configPath, rerr)
+		}
+		if len(base) > 0 {
 			out, merr := singboxgen.MergeBase(base, state)
-			if merr == nil {
-				return out, nil
+			if merr != nil {
+				return nil, fmt.Errorf("merge base config %q: %w", a.configPath, merr)
 			}
-			a.log.Warn("merge base config failed, falling back to from-scratch build",
-				"err", merr, "config_path", a.configPath)
+			return out, nil
 		}
 	}
 	return singboxgen.Build(state)
+}
+
+func applyPlacementOverlay(placements []domain.Placement, overlay domain.Placement) []domain.Placement {
+	out := make([]domain.Placement, 0, len(placements)+1)
+	replaced := false
+	for _, p := range placements {
+		if p.ID == overlay.ID {
+			out = append(out, overlay)
+			replaced = true
+			continue
+		}
+		out = append(out, p)
+	}
+	if !replaced {
+		out = append(out, overlay)
+	}
+	return out
 }
