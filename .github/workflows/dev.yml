@@ -70,12 +70,23 @@ jobs:
             -n "${NAMESPACE}" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      - name: Deploy go-node-agent (dev)
+      - name: Deploy go-node-agent backend (dev)
         run: |
           set -Eeuo pipefail
-          helm upgrade --install go-node-agent-dev deploy/helm/ \
+          helm upgrade --install go-node-agent-backend-dev deploy/helm/ \
             -n "${NAMESPACE}" \
-            -f deploy/helm/values.dev.yaml \
+            -f deploy/helm/values.backend-dev.yaml \
+            --set image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set "imagePullSecrets[0].name=harbor-registry" \
+            --wait --timeout 5m
+
+      - name: Deploy go-node-agent entry (dev)
+        run: |
+          set -Eeuo pipefail
+          helm upgrade --install go-node-agent-entry-dev deploy/helm/ \
+            -n "${NAMESPACE}" \
+            -f deploy/helm/values.entry-dev.yaml \
             --set image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
             --set image.tag="${IMAGE_TAG}" \
             --set "imagePullSecrets[0].name=harbor-registry" \

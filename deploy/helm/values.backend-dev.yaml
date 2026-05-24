@@ -1,0 +1,63 @@
+# go-node-agent — backend mode, dev
+#
+# Deploy:
+#   helm upgrade --install go-node-agent-backend-dev deploy/helm/ \
+#     -n vpn-dev -f deploy/helm/values.backend-dev.yaml
+
+image:
+  repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
+  tag: dev
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: harbor-registry
+
+nodeSelector:
+  role: vpn
+  channel: dev
+
+# Avoid scheduling on entry/whitelist-entry nodes; mirrors the Python agent's
+# backend-mode placement in chart/values/dev.yaml.
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: traffic_role
+              operator: NotIn
+              values:
+                - entry
+                - whitelist_entry
+
+env:
+  controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
+  natsURL: nats://nats.nats.svc.cluster.local:4222
+  nodeRole: backend
+  logLevel: debug
+  logFormat: json
+  heartbeatInterval: 10s
+
+executor:
+  enabled: true
+  xray:
+    grpcAddr: vpn-xray-dev-xray.vpn-dev.svc.cluster.local:10085
+    inboundTag: vless-in
+
+secrets:
+  bootstrapTokenSecretName: go-node-agent-backend-dev-bootstrap
+  bootstrapTokenSecretKey: token
+
+externalSecret:
+  enabled: true
+  storeName: vault
+  vaultPath: go-node-agent/dev/env
+  targetName: go-node-agent-backend-dev-bootstrap
+  refreshInterval: 5m
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+  prometheus-env: dev
+  prometheus-app: go-node-agent
+  prometheus-role: backend

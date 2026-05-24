@@ -1,3 +1,9 @@
+# go-node-agent — entry mode, dev
+#
+# Deploy:
+#   helm upgrade --install go-node-agent-entry-dev deploy/helm/ \
+#     -n vpn-dev -f deploy/helm/values.entry-dev.yaml
+
 image:
   repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
   tag: dev
@@ -9,6 +15,7 @@ imagePullSecrets:
 nodeSelector:
   role: vpn
   channel: dev
+  traffic_role: whitelist_entry
 
 env:
   controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
@@ -18,15 +25,23 @@ env:
   logFormat: json
   heartbeatInterval: 10s
 
+executor:
+  enabled: true
+  singbox:
+    inboundTag: vless-in
+    listenAddress: "::"
+    listenPort: 443
+    logLevel: info
+
 secrets:
-  bootstrapTokenSecretName: go-node-agent-dev-bootstrap
+  bootstrapTokenSecretName: go-node-agent-entry-dev-bootstrap
   bootstrapTokenSecretKey: token
 
 externalSecret:
   enabled: true
   storeName: vault
   vaultPath: go-node-agent/dev/env
-  targetName: go-node-agent-dev-bootstrap
+  targetName: go-node-agent-entry-dev-bootstrap
   refreshInterval: 5m
 
 podAnnotations:
@@ -35,3 +50,4 @@ podAnnotations:
   prometheus.io/path: "/metrics"
   prometheus-env: dev
   prometheus-app: go-node-agent
+  prometheus-role: entry

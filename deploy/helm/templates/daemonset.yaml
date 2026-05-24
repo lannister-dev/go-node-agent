@@ -37,6 +37,10 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
@@ -124,6 +128,10 @@ spec:
               value: {{ .Values.executor.backendDefaults.port | quote }}
             - name: BACKEND_DEFAULT_TRANSPORT
               value: {{ .Values.executor.backendDefaults.transport | quote }}
+            - name: XRAY_GRPC_ADDR
+              value: {{ .Values.executor.xray.grpcAddr | quote }}
+            - name: XRAY_INBOUND_TAG
+              value: {{ .Values.executor.xray.inboundTag | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.probes.startup.enabled }}
