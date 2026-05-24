@@ -24,6 +24,11 @@ env:
   logLevel: debug
   logFormat: json
   heartbeatInterval: 10s
+  natsCommandPrefix: dev.agent.placements
+  natsResultPrefix: dev.agent.placement_results
+  natsSnapshotPrefix: dev.agent.snapshots
+  natsHeartbeatPrefix: dev.agent.heartbeats
+  natsSyncReportPrefix: dev.agent.sync_reports
 
 executor:
   enabled: true
