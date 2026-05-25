@@ -1,12 +1,12 @@
-# go-node-agent — entry mode, dev
+# go-node-agent — entry mode, prod
 #
 # Deploy:
-#   helm upgrade --install go-node-agent-entry-dev deploy/helm/ \
-#     -n vpn-dev -f deploy/helm/values.entry-dev.yaml
+#   helm upgrade --install go-node-agent-entry-prod deploy/helm/ \
+#     -n vpn-prod -f deploy/helm/values.entry-prod.yaml
 
 image:
   repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
-  tag: dev
+  tag: prod
   pullPolicy: Always
 
 imagePullSecrets:
@@ -14,24 +14,24 @@ imagePullSecrets:
 
 nodeSelector:
   role: vpn
-  channel: dev
+  channel: prod
   traffic_role: entry
 
 hostNetwork: true
 dnsPolicy: ClusterFirstWithHostNet
 
 env:
-  controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
+  controlApiURL: http://control-api.vpn-prod.svc.cluster.local:8000
   natsURL: nats://nats.nats.svc.cluster.local:4222
   nodeRole: entry
-  logLevel: debug
+  logLevel: info
   logFormat: json
   heartbeatInterval: 10s
-  natsCommandPrefix: dev.agent.placements
-  natsResultPrefix: dev.agent.placement_results
-  natsSnapshotPrefix: dev.agent.snapshots
-  natsHeartbeatPrefix: dev.agent.heartbeats
-  natsSyncReportPrefix: dev.agent.sync_reports
+  natsCommandPrefix: prod.agent.placements
+  natsResultPrefix: prod.agent.placement_results
+  natsSnapshotPrefix: prod.agent.snapshots
+  natsHeartbeatPrefix: prod.agent.heartbeats
+  natsSyncReportPrefix: prod.agent.sync_reports
 
 executor:
   enabled: true
@@ -42,22 +42,22 @@ executor:
     logLevel: info
 
 secrets:
-  bootstrapTokenSecretName: go-node-agent-entry-dev-bootstrap
+  bootstrapTokenSecretName: go-node-agent-entry-prod-bootstrap
   bootstrapTokenSecretKey: token
-  natsUrlSecretName: go-node-agent-entry-dev-bootstrap
+  natsUrlSecretName: go-node-agent-entry-prod-bootstrap
   natsUrlSecretKey: NATS_URL
 
 externalSecret:
   enabled: true
   storeName: vault
-  vaultPath: go-node-agent/dev/env
-  targetName: go-node-agent-entry-dev-bootstrap
+  vaultPath: go-node-agent/prod/env
+  targetName: go-node-agent-entry-prod-bootstrap
   refreshInterval: 5m
 
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8080"
   prometheus.io/path: "/metrics"
-  prometheus-env: dev
+  prometheus-env: prod
   prometheus-app: go-node-agent
   prometheus-role: entry

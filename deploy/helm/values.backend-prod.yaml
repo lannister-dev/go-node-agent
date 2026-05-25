@@ -1,0 +1,72 @@
+# go-node-agent — backend mode, prod
+#
+# Deploy:
+#   helm upgrade --install go-node-agent-backend-prod deploy/helm/ \
+#     -n vpn-prod -f deploy/helm/values.backend-prod.yaml
+
+image:
+  repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
+  tag: prod
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: harbor-registry
+
+nodeSelector:
+  role: vpn
+  channel: prod
+
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: traffic_role
+              operator: NotIn
+              values:
+                - entry
+                - whitelist_entry
+
+env:
+  controlApiURL: http://control-api.vpn-prod.svc.cluster.local:8000
+  natsURL: nats://nats.nats.svc.cluster.local:4222
+  nodeRole: backend
+  logLevel: info
+  logFormat: json
+  heartbeatInterval: 10s
+  natsCommandPrefix: prod.agent.placements
+  natsResultPrefix: prod.agent.placement_results
+  natsSnapshotPrefix: prod.agent.snapshots
+  natsHeartbeatPrefix: prod.agent.heartbeats
+  natsSyncReportPrefix: prod.agent.sync_reports
+
+executor:
+  enabled: true
+  xray:
+    grpcAddr: vpn-xray-xray.vpn-prod.svc.cluster.local:10085
+    inboundTag: vless-ws
+    inboundTagWS: vless-ws
+    inboundTagReality: vless-reality
+    inboundTagXHTTP: vless-xhttp
+    inboundTagTCP: vless-tcp
+
+secrets:
+  bootstrapTokenSecretName: go-node-agent-backend-prod-bootstrap
+  bootstrapTokenSecretKey: token
+  natsUrlSecretName: go-node-agent-backend-prod-bootstrap
+  natsUrlSecretKey: NATS_URL
+
+externalSecret:
+  enabled: true
+  storeName: vault
+  vaultPath: go-node-agent/prod/env
+  targetName: go-node-agent-backend-prod-bootstrap
+  refreshInterval: 5m
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+  prometheus-env: prod
+  prometheus-app: go-node-agent
+  prometheus-role: backend
