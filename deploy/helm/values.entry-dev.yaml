@@ -41,6 +41,8 @@ executor:
 secrets:
   bootstrapTokenSecretName: go-node-agent-entry-dev-bootstrap
   bootstrapTokenSecretKey: token
+  natsUrlSecretName: go-node-agent-entry-dev-bootstrap
+  natsUrlSecretKey: NATS_URL
 
 externalSecret:
   enabled: true

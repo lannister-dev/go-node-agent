@@ -87,7 +87,14 @@ spec:
             - name: CONTROL_API_URL
               value: {{ .Values.env.controlApiURL | quote }}
             - name: NATS_URL
+              {{- if .Values.secrets.natsUrlSecretName }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.natsUrlSecretName }}
+                  key: {{ .Values.secrets.natsUrlSecretKey | default "NATS_URL" }}
+              {{- else }}
               value: {{ .Values.env.natsURL | quote }}
+              {{- end }}
             - name: NODE_ROLE
               value: {{ .Values.env.nodeRole | quote }}
             - name: NODE_KEY
