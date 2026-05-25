@@ -22,7 +22,7 @@ type fakeSub struct {
 
 func newFakeSub() *fakeSub { return &fakeSub{ready: make(chan struct{})} }
 
-func (f *fakeSub) Subscribe(_ context.Context, subject, durable string, h ports.MsgHandler) (ports.Unsubscribe, error) {
+func (f *fakeSub) Subscribe(_ context.Context, subject, durable string, h ports.MsgHandler, _ ...ports.SubscribeOption) (ports.Unsubscribe, error) {
 	f.mu.Lock()
 	f.handler = h
 	f.subject = subject

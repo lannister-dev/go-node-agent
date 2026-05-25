@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"strconv"
 	"sync/atomic"
@@ -19,6 +20,8 @@ import (
 )
 
 var applierTracer = otel.Tracer("agent.applier")
+
+const applierWorkers = 8
 
 type Config struct {
 	NodeID         domain.NodeID
@@ -73,14 +76,30 @@ func New(cfg Config, sub Subscriber, pub Publisher, store PlacementStore, execut
 }
 
 func (a *Applier) Run(ctx context.Context) error {
-	unsub, err := a.sub.Subscribe(ctx, a.cfg.CommandSubject, a.cfg.Durable, a.Handle)
+	unsub, err := a.sub.Subscribe(ctx, a.cfg.CommandSubject, a.cfg.Durable, a.Handle,
+		ports.WithConcurrency(applierWorkers, placementShardKey),
+	)
 	if err != nil {
 		return fmt.Errorf("subscribe: %w", err)
 	}
-	a.log.Info("applier subscribed", "subject", a.cfg.CommandSubject, "durable", a.cfg.Durable)
+	a.log.Info("applier subscribed",
+		"subject", a.cfg.CommandSubject,
+		"durable", a.cfg.Durable,
+		"workers", applierWorkers,
+	)
 	defer func() { _ = unsub() }()
 	<-ctx.Done()
 	return ctx.Err()
+}
+
+func placementShardKey(msg ports.Msg) uint64 {
+	id, err := jsonv1.PlacementIDFromCommandEvent(msg.Data)
+	if err != nil || id == "" {
+		return msg.Seq
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(id))
+	return h.Sum64()
 }
 
 func (a *Applier) Handle(ctx context.Context, msg ports.Msg) error {

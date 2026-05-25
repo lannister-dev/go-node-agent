@@ -13,12 +13,26 @@ type Msg struct {
 
 type MsgHandler func(ctx context.Context, msg Msg) error
 
+type SubscribeOpts struct {
+	MaxConcurrent int
+	ShardKey      func(Msg) uint64
+}
+
+type SubscribeOption func(*SubscribeOpts)
+
+func WithConcurrency(workers int, key func(Msg) uint64) SubscribeOption {
+	return func(o *SubscribeOpts) {
+		o.MaxConcurrent = workers
+		o.ShardKey = key
+	}
+}
+
 type Publisher interface {
 	Publish(ctx context.Context, subject string, headers map[string]string, data []byte) error
 }
 
 type Subscriber interface {
-	Subscribe(ctx context.Context, subject, durable string, handler MsgHandler) (Unsubscribe, error)
+	Subscribe(ctx context.Context, subject, durable string, handler MsgHandler, opts ...SubscribeOption) (Unsubscribe, error)
 }
 
 type Unsubscribe func() error
