@@ -11,31 +11,34 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/lannister-dev/go-node-agent/internal/domain"
 	cmd "github.com/lannister-dev/go-node-agent/pkg/proto/xray/app/proxyman/command"
 )
 
 type Options struct {
-	Address     string
-	InboundTag  string
-	Timeout     time.Duration
-	DialOptions []grpc.DialOption
-	Logger      *slog.Logger
+	Address           string
+	InboundTag        string
+	InboundTagByXport map[domain.TransportKind]string
+	Timeout           time.Duration
+	DialOptions       []grpc.DialOption
+	Logger            *slog.Logger
 }
 
 type Client struct {
-	conn       *grpc.ClientConn
-	handler    cmd.HandlerServiceClient
-	inboundTag string
-	timeout    time.Duration
-	log        *slog.Logger
+	conn         *grpc.ClientConn
+	handler      cmd.HandlerServiceClient
+	inboundTag   string
+	tagByXport   map[domain.TransportKind]string
+	timeout      time.Duration
+	log          *slog.Logger
 }
 
 func New(opts Options) (*Client, error) {
 	if opts.Address == "" {
 		return nil, errors.New("xray: Address required")
 	}
-	if opts.InboundTag == "" {
-		return nil, errors.New("xray: InboundTag required")
+	if opts.InboundTag == "" && len(opts.InboundTagByXport) == 0 {
+		return nil, errors.New("xray: InboundTag or InboundTagByXport required")
 	}
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -53,13 +56,27 @@ func New(opts Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	tagMap := make(map[domain.TransportKind]string, len(opts.InboundTagByXport))
+	for k, v := range opts.InboundTagByXport {
+		if v != "" {
+			tagMap[k] = v
+		}
+	}
 	return &Client{
 		conn:       conn,
 		handler:    cmd.NewHandlerServiceClient(conn),
 		inboundTag: opts.InboundTag,
+		tagByXport: tagMap,
 		timeout:    timeout,
 		log:        log.With("component", "xray"),
 	}, nil
+}
+
+func (c *Client) tagFor(t domain.TransportKind) string {
+	if tag, ok := c.tagByXport[t]; ok && tag != "" {
+		return tag
+	}
+	return c.inboundTag
 }
 
 func (c *Client) Close() error {

@@ -152,6 +152,22 @@ spec:
               value: {{ .Values.executor.xray.grpcAddr | quote }}
             - name: XRAY_INBOUND_TAG
               value: {{ .Values.executor.xray.inboundTag | quote }}
+            {{- with .Values.executor.xray.inboundTagWS }}
+            - name: XRAY_INBOUND_TAG_WS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.executor.xray.inboundTagReality }}
+            - name: XRAY_INBOUND_TAG_REALITY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.executor.xray.inboundTagXHTTP }}
+            - name: XRAY_INBOUND_TAG_XHTTP
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.executor.xray.inboundTagTCP }}
+            - name: XRAY_INBOUND_TAG_TCP
+              value: {{ . | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if .Values.probes.startup.enabled }}

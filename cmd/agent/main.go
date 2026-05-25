@@ -457,11 +457,25 @@ func buildEntryStack(
 }
 
 func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger) (*backendStack, error) {
+	tagByXport := map[domain.TransportKind]string{}
+	if cfg.XrayInboundTagWS != "" {
+		tagByXport[domain.TransportWS] = cfg.XrayInboundTagWS
+	}
+	if cfg.XrayInboundTagReality != "" {
+		tagByXport[domain.TransportReality] = cfg.XrayInboundTagReality
+	}
+	if cfg.XrayInboundTagXHTTP != "" {
+		tagByXport[domain.TransportXHTTP] = cfg.XrayInboundTagXHTTP
+	}
+	if cfg.XrayInboundTagTCP != "" {
+		tagByXport[domain.TransportTCP] = cfg.XrayInboundTagTCP
+	}
 	xc, err := xray.New(xray.Options{
-		Address:    cfg.XrayGRPCAddr,
-		InboundTag: cfg.XrayInboundTag,
-		Timeout:    3 * time.Second,
-		Logger:     log,
+		Address:           cfg.XrayGRPCAddr,
+		InboundTag:        cfg.XrayInboundTag,
+		InboundTagByXport: tagByXport,
+		Timeout:           3 * time.Second,
+		Logger:            log,
 	})
 	if err != nil {
 		return nil, err

@@ -46,7 +46,11 @@ executor:
   enabled: true
   xray:
     grpcAddr: vpn-xray-dev-xray.vpn-dev.svc.cluster.local:10085
-    inboundTag: vless-in
+    inboundTag: vless-ws  # fallback when transport-specific tag below missing
+    inboundTagWS: vless-ws
+    inboundTagReality: vless-reality
+    inboundTagXHTTP: vless-xhttp
+    inboundTagTCP: vless-tcp
 
 secrets:
   bootstrapTokenSecretName: go-node-agent-backend-dev-bootstrap
