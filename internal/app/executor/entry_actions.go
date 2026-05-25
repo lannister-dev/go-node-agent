@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
@@ -112,6 +114,22 @@ func (a *EntryActions) OldBackendConnections(ctx context.Context, plan domain.Fl
 	}
 	tag := singboxgen.OutboundTagFor(plan.OldBackend)
 	return conns.PerOutbound[tag], nil
+}
+
+func (a *EntryActions) OldBackendReachable(ctx context.Context, plan domain.FlipPlan) bool {
+	b, ok := a.backends.Get(plan.OldBackend)
+	if !ok {
+		return false
+	}
+	dctx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	addr := net.JoinHostPort(b.Address, strconv.FormatUint(uint64(b.Port), 10))
+	conn, err := (&net.Dialer{}).DialContext(dctx, "tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
 func (a *EntryActions) CoolOldBackend(ctx context.Context, plan domain.FlipPlan) error {

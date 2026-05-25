@@ -11,6 +11,7 @@ type Actions interface {
 	ValidateBackend(ctx context.Context, plan domain.FlipPlan) error
 	SwapRoute(ctx context.Context, plan domain.FlipPlan) error
 	OldBackendConnections(ctx context.Context, plan domain.FlipPlan) (uint64, error)
+	OldBackendReachable(ctx context.Context, plan domain.FlipPlan) bool
 	CoolOldBackend(ctx context.Context, plan domain.FlipPlan) error
 }
 

@@ -66,6 +66,10 @@ func (f *fakeFlipActions) CoolOldBackend(_ context.Context, _ domain.FlipPlan) e
 	return f.coolErr
 }
 
+func (f *fakeFlipActions) OldBackendReachable(_ context.Context, _ domain.FlipPlan) bool {
+	return true
+}
+
 func (f *fakeFlipActions) callOrder() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()

@@ -144,6 +144,13 @@ func (o *Orchestrator) runPhase(ctx context.Context, plan domain.FlipPlan, targe
 }
 
 func (o *Orchestrator) drain(ctx context.Context, plan domain.FlipPlan) error {
+	if !o.actions.OldBackendReachable(ctx, plan) {
+		o.log.Info("drain: old backend unreachable from entry, skipping",
+			"placement_id", plan.PlacementID,
+			"old_backend", plan.OldBackend,
+		)
+		return nil
+	}
 	deadline := o.clock.Now().Add(plan.DrainTimeout)
 	interval := o.drainPollMin
 	var lastRemaining uint64
