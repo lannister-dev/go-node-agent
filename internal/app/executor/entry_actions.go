@@ -23,7 +23,12 @@ type EntryActions struct {
 	logCfg     singboxgen.LogSpec
 	clashCfg   singboxgen.ClashAPISpec
 	configPath string
+	coalescer  *RenderCoalescer
 	log        *slog.Logger
+}
+
+func (a *EntryActions) AttachCoalescer(c *RenderCoalescer) {
+	a.coalescer = c
 }
 
 type EntryActionsConfig struct {
@@ -86,6 +91,18 @@ func (a *EntryActions) SwapRoute(ctx context.Context, plan domain.FlipPlan) erro
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
 
+	if a.coalescer != nil {
+		if err := a.coalescer.Apply(ctx, &desired); err != nil {
+			return fmt.Errorf("swap: coalesce: %w", err)
+		}
+		a.log.Info("route swapped",
+			"placement_id", plan.PlacementID,
+			"old", plan.OldBackend,
+			"new", plan.NewBackend,
+		)
+		return nil
+	}
+
 	data, err := a.renderConfigWith(ctx, &desired)
 	if err != nil {
 		return fmt.Errorf("swap: render config: %w", err)
@@ -133,6 +150,13 @@ func (a *EntryActions) OldBackendReachable(ctx context.Context, plan domain.Flip
 }
 
 func (a *EntryActions) CoolOldBackend(ctx context.Context, plan domain.FlipPlan) error {
+	if a.coalescer != nil {
+		if err := a.coalescer.Apply(ctx, nil); err != nil {
+			return fmt.Errorf("cool: coalesce: %w", err)
+		}
+		a.log.Debug("cooled old backend", "placement_id", plan.PlacementID, "old", plan.OldBackend)
+		return nil
+	}
 	data, err := a.renderConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("cool: render config: %w", err)
@@ -171,6 +195,18 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
 
+	if a.coalescer != nil {
+		if err := a.coalescer.Apply(ctx, &desired); err != nil {
+			return fmt.Errorf("simple-apply: coalesce: %w", err)
+		}
+		a.log.Debug("simple-apply complete",
+			"placement_id", desired.ID,
+			"desired_state", desired.Desired,
+			"backend", desired.BackendNodeID,
+		)
+		return nil
+	}
+
 	data, err := a.renderConfigWith(ctx, &desired)
 	if err != nil {
 		return fmt.Errorf("simple-apply: render: %w", err)
@@ -193,6 +229,13 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 }
 
 func (a *EntryActions) RebuildFromStore(ctx context.Context) error {
+	if a.coalescer != nil {
+		if err := a.coalescer.Apply(ctx, nil); err != nil {
+			return fmt.Errorf("rebuild: coalesce: %w", err)
+		}
+		a.log.Info("rebuilt sing-box config from store (coalesced)")
+		return nil
+	}
 	data, err := a.renderConfig(ctx)
 	if err != nil {
 		return fmt.Errorf("rebuild: render: %w", err)
@@ -226,6 +269,10 @@ func (a *EntryActions) renderConfigWith(ctx context.Context, overlay *domain.Pla
 		Backends:   a.backends.All(),
 		Placements: placements,
 	}
+	return a.renderFromState(state)
+}
+
+func (a *EntryActions) renderFromState(state singboxgen.NodeState) ([]byte, error) {
 	if a.configPath != "" {
 		base, rerr := os.ReadFile(a.configPath)
 		if rerr != nil {

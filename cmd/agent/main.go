@@ -54,11 +54,12 @@ func main() {
 }
 
 type entryStack struct {
-	executor applier.Executor
-	listener *backends.Listener
-	actions  *executor.EntryActions
-	singbox  *singbox.Client
-	registry *backends.Registry
+	executor  applier.Executor
+	listener  *backends.Listener
+	actions   *executor.EntryActions
+	singbox   *singbox.Client
+	registry  *backends.Registry
+	coalescer *executor.RenderCoalescer
 }
 
 type backendStack struct {
@@ -365,6 +366,9 @@ func run() error {
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })
 	}
+	if stack != nil && stack.coalescer != nil {
+		g.Go(func() error { return stack.coalescer.Run(gctx) })
+	}
 
 	log.Info("agent running",
 		"heartbeat_subject", subjects.Heartbeat(nodeID),
@@ -456,12 +460,20 @@ func buildEntryStack(
 		return nil, err
 	}
 
+	coalescer, err := executor.NewRenderCoalescer(actions, executor.CoalescerOptions{}, log)
+	if err != nil {
+		_ = sb.Close()
+		return nil, err
+	}
+	actions.AttachCoalescer(coalescer)
+
 	return &entryStack{
-		executor: flipExec,
-		listener: listener,
-		actions:  actions,
-		singbox:  sb,
-		registry: reg,
+		executor:  flipExec,
+		listener:  listener,
+		actions:   actions,
+		singbox:   sb,
+		registry:  reg,
+		coalescer: coalescer,
 	}, nil
 }
 
