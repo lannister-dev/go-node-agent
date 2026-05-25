@@ -8,10 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
 	"github.com/lannister-dev/go-node-agent/internal/wire/jsonv1"
 )
+
+const snapshotApplyConcurrency = 8
 
 type ConsumerConfig struct {
 	NodeID            domain.NodeID
@@ -91,23 +95,31 @@ func (c *Consumer) Handle(ctx context.Context, msg ports.Msg) error {
 	}
 	c.receivedChunks.Add(1)
 
-	persisted := 0
+	var persisted atomic.Uint32
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(snapshotApplyConcurrency)
 	for _, cmd := range chunk.Items {
-		applied, err := c.applyItem(ctx, cmd)
-		if err != nil {
-			return fmt.Errorf("snapshot chunk %d item %s: %w",
-				chunk.ChunkIndex, cmd.Placement.ID, err)
-		}
-		if applied {
-			persisted++
-		}
+		g.Go(func() error {
+			applied, err := c.applyItem(gctx, cmd)
+			if err != nil {
+				return fmt.Errorf("snapshot chunk %d item %s: %w",
+					chunk.ChunkIndex, cmd.Placement.ID, err)
+			}
+			if applied {
+				persisted.Add(1)
+			}
+			return nil
+		})
 	}
-	c.syncedItems.Add(uint32(persisted))
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	c.syncedItems.Add(persisted.Load())
 
 	c.log.Info("snapshot chunk processed",
 		"chunk_index", chunk.ChunkIndex,
 		"items", len(chunk.Items),
-		"persisted", persisted,
+		"persisted", persisted.Load(),
 		"is_last", chunk.IsLastChunk,
 		"snapshot_id", chunk.SnapshotID,
 	)

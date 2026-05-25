@@ -26,5 +26,6 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 
 type Options struct {
 	DrainPollInterval time.Duration
+	DrainPollMax      time.Duration
 	OverallBudgetMul  int
 }

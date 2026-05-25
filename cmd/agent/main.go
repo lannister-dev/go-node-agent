@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -72,32 +73,40 @@ type backendRebuilder struct {
 	log   *slog.Logger
 }
 
+const backendRebuildConcurrency = 10
+
 func (r *backendRebuilder) RebuildFromStore(ctx context.Context) error {
 	placements, err := r.store.ListPlacements(ctx)
 	if err != nil {
 		return fmt.Errorf("backend-rebuild: list placements: %w", err)
 	}
-	added := 0
+	var added atomic.Int32
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(backendRebuildConcurrency)
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive || p.IsRevoked || p.ClientID == "" {
 			continue
 		}
-		if err := r.xray.AddUser(ctx, ports.XrayUser{
-			ClientID:  p.ClientID,
-			Transport: p.Transport,
-		}); err != nil {
-			r.log.Warn("backend-rebuild: AddUser failed",
-				"placement_id", p.ID,
-				"client_id", p.ClientID,
-				"err", err,
-			)
-			continue
-		}
-		added++
+		g.Go(func() error {
+			if err := r.xray.AddUser(gctx, ports.XrayUser{
+				ClientID:  p.ClientID,
+				Transport: p.Transport,
+			}); err != nil {
+				r.log.Warn("backend-rebuild: AddUser failed",
+					"placement_id", p.ID,
+					"client_id", p.ClientID,
+					"err", err,
+				)
+				return nil
+			}
+			added.Add(1)
+			return nil
+		})
 	}
+	_ = g.Wait()
 	r.log.Info("backend-rebuild complete",
 		"placements_total", len(placements),
-		"users_added", added,
+		"users_added", added.Load(),
 	)
 	return nil
 }
