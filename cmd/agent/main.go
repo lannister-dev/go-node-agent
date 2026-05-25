@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,6 +32,7 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/platform/idgen"
 	"github.com/lannister-dev/go-node-agent/internal/platform/logger"
 	"github.com/lannister-dev/go-node-agent/internal/platform/telemetry"
+	"github.com/lannister-dev/go-node-agent/internal/ports"
 	"github.com/lannister-dev/go-node-agent/internal/server"
 	"github.com/lannister-dev/go-node-agent/internal/wire"
 	"github.com/lannister-dev/go-node-agent/internal/wire/jsonv1"
@@ -59,20 +61,53 @@ type entryStack struct {
 }
 
 type backendStack struct {
-	executor applier.Executor
-	xray     *xray.Client
+	executor  applier.Executor
+	xray      *xray.Client
+	rebuilder *backendRebuilder
 }
 
-type backendRebuilder struct{ xray *xray.Client }
+type backendRebuilder struct {
+	xray  *xray.Client
+	store *badger.Store
+	log   *slog.Logger
+}
 
-func (backendRebuilder) RebuildFromStore(_ context.Context) error { return nil }
+func (r *backendRebuilder) RebuildFromStore(ctx context.Context) error {
+	placements, err := r.store.ListPlacements(ctx)
+	if err != nil {
+		return fmt.Errorf("backend-rebuild: list placements: %w", err)
+	}
+	added := 0
+	for _, p := range placements {
+		if p.Desired != domain.DesiredActive || p.IsRevoked || p.ClientID == "" {
+			continue
+		}
+		if err := r.xray.AddUser(ctx, ports.XrayUser{
+			ClientID:  p.ClientID,
+			Transport: p.Transport,
+		}); err != nil {
+			r.log.Warn("backend-rebuild: AddUser failed",
+				"placement_id", p.ID,
+				"client_id", p.ClientID,
+				"err", err,
+			)
+			continue
+		}
+		added++
+	}
+	r.log.Info("backend-rebuild complete",
+		"placements_total", len(placements),
+		"users_added", added,
+	)
+	return nil
+}
 
 func pickRebuilder(es *entryStack, bs *backendStack) reconcile.Rebuilder {
 	if es != nil && es.actions != nil {
 		return es.actions
 	}
-	if bs != nil {
-		return backendRebuilder{xray: bs.xray}
+	if bs != nil && bs.rebuilder != nil {
+		return bs.rebuilder
 	}
 	return nil
 }
@@ -239,6 +274,12 @@ func run() error {
 	var snapRebuilder snapshot.Rebuilder = snapshot.NoopRebuilder{}
 	if stack != nil {
 		snapRebuilder = stack.actions
+	}
+	if backendStack != nil && backendStack.rebuilder != nil {
+		snapRebuilder = backendStack.rebuilder
+		if err := backendStack.rebuilder.RebuildFromStore(ctx); err != nil {
+			log.Warn("initial backend rebuild failed", "err", err)
+		}
 	}
 	snapConsumer, err := snapshot.NewConsumer(snapshot.ConsumerConfig{
 		NodeID:            nodeID,
@@ -430,7 +471,8 @@ func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger)
 		_ = xc.Close()
 		return nil, err
 	}
-	return &backendStack{executor: be, xray: xc}, nil
+	rb := &backendRebuilder{xray: xc, store: store, log: log}
+	return &backendStack{executor: be, xray: xc, rebuilder: rb}, nil
 }
 
 func runBootstrapWithRetry(ctx context.Context, log *slog.Logger, bs *bootstrap.Bootstrap) (bootstrap.Result, error) {
