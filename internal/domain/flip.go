@@ -10,6 +10,7 @@ const (
 	FlipWarming   FlipState = "warming"
 	FlipSwap      FlipState = "swap"
 	FlipCooling   FlipState = "cooling"
+	FlipCool      FlipState = "cool"
 )
 
 type FlipPlan struct {
@@ -35,6 +36,8 @@ func (p FlipPlan) Next() FlipState {
 	case FlipSwap:
 		return FlipCooling
 	case FlipCooling:
+		return FlipCool
+	case FlipCool:
 		return FlipSteady
 	}
 	return FlipSteady

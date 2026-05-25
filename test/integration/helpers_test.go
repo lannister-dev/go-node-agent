@@ -60,7 +60,7 @@ func startMockControlAPI(t *testing.T, st *controlAPIState) string {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/api/agent/initial":
+		case "/api/v1/agent/initial":
 			st.initialCalls++
 			agentID := r.Header.Get("X-Agent-Instance-ID")
 			w.Header().Set("Content-Type", "application/json")

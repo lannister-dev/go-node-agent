@@ -1,18 +1,25 @@
 image:
-  repository: harbor.lannister-dev.ru/vpn/node-agent
+  repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
   tag: ""
   pullPolicy: IfNotPresent
 
-imagePullSecrets: []
+imagePullSecrets:
+  - name: harbor-registry
 
 nameOverride: ""
 fullnameOverride: ""
 
 nodeSelector:
   role: vpn
-  agent: go
+  channel: dev
 
-tolerations: []
+affinity: {}
+
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: vpn
+    effect: NoSchedule
 priorityClassName: ""
 hostNetwork: false
 dnsPolicy: ClusterFirst
@@ -67,12 +74,24 @@ executor:
   backendDefaults:
     port: 9000
     transport: ws
+  xray:
+    grpcAddr: 127.0.0.1:10085
+    inboundTag: vless-in
 
 secrets:
   bootstrapTokenSecretName: ""
   bootstrapTokenSecretKey: bootstrap_token
   nodeKeySecretName: ""
   nodeKeySecretKey: node_key
+  natsUrlSecretName: ""
+  natsUrlSecretKey: NATS_URL
+
+externalSecret:
+  enabled: false
+  storeName: vault
+  vaultPath: ""
+  targetName: ""
+  refreshInterval: 5m
 
 storage:
   hostPath: /var/lib/go-node-agent

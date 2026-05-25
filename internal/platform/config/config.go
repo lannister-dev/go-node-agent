@@ -57,6 +57,10 @@ type Config struct {
 	BackendDefaultPort      uint16
 	BackendDefaultTransport string
 	XrayInboundTag          string
+	XrayInboundTagWS        string
+	XrayInboundTagReality   string
+	XrayInboundTagXHTTP     string
+	XrayInboundTagTCP       string
 	BandwidthNIC            string
 	BandwidthCapacityMbps   uint16
 	OTLPEndpoint            string
@@ -95,6 +99,10 @@ func Load() (Config, error) {
 		SingBoxLogLevel:         env("SINGBOX_LOG_LEVEL", "info"),
 		BackendDefaultTransport: env("BACKEND_DEFAULT_TRANSPORT", "ws"),
 		XrayInboundTag:          env("XRAY_INBOUND_TAG", "vless-in"),
+		XrayInboundTagWS:        env("XRAY_INBOUND_TAG_WS", ""),
+		XrayInboundTagReality:   env("XRAY_INBOUND_TAG_REALITY", ""),
+		XrayInboundTagXHTTP:     env("XRAY_INBOUND_TAG_XHTTP", ""),
+		XrayInboundTagTCP:       env("XRAY_INBOUND_TAG_TCP", ""),
 		BandwidthNIC:            env("BANDWIDTH_NIC", ""),
 		OTLPEndpoint:            env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}

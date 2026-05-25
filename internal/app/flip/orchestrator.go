@@ -19,10 +19,11 @@ import (
 var flipTracer = otel.Tracer("agent.flip")
 
 type Orchestrator struct {
-	actions           Actions
-	clock             Clock
-	log               *slog.Logger
-	drainPollInterval time.Duration
+	actions      Actions
+	clock        Clock
+	log          *slog.Logger
+	drainPollMin time.Duration
+	drainPollMax time.Duration
 }
 
 func New(actions Actions, log *slog.Logger, opts Options) (*Orchestrator, error) {
@@ -32,15 +33,20 @@ func New(actions Actions, log *slog.Logger, opts Options) (*Orchestrator, error)
 	if log == nil {
 		log = slog.Default()
 	}
-	interval := opts.DrainPollInterval
-	if interval <= 0 {
-		interval = 200 * time.Millisecond
+	minInt := opts.DrainPollInterval
+	if minInt <= 0 {
+		minInt = 50 * time.Millisecond
+	}
+	maxInt := opts.DrainPollMax
+	if maxInt < minInt {
+		maxInt = minInt
 	}
 	return &Orchestrator{
-		actions:           actions,
-		clock:             realClock{},
-		log:               log.With("component", "flip"),
-		drainPollInterval: interval,
+		actions:      actions,
+		clock:        realClock{},
+		log:          log.With("component", "flip"),
+		drainPollMin: minInt,
+		drainPollMax: maxInt,
 	}, nil
 }
 
@@ -118,13 +124,15 @@ func (o *Orchestrator) runPhase(ctx context.Context, plan domain.FlipPlan, targe
 	case domain.FlipAnnounced:
 		err = nil
 	case domain.FlipWarming:
-		err = o.actions.WarmBackend(ctx, plan)
+		err = o.actions.ValidateBackend(ctx, plan)
 	case domain.FlipSwap:
 		err = o.actions.SwapRoute(ctx, plan)
 	case domain.FlipCooling:
 		err = o.drain(ctx, plan)
-	case domain.FlipSteady:
+	case domain.FlipCool:
 		err = o.actions.CoolOldBackend(ctx, plan)
+	case domain.FlipSteady:
+		err = nil
 	default:
 		err = fmt.Errorf("unknown target state %q", target)
 	}
@@ -136,7 +144,17 @@ func (o *Orchestrator) runPhase(ctx context.Context, plan domain.FlipPlan, targe
 }
 
 func (o *Orchestrator) drain(ctx context.Context, plan domain.FlipPlan) error {
+	if !o.actions.OldBackendReachable(ctx, plan) {
+		o.log.Info("drain: old backend unreachable from entry, skipping",
+			"placement_id", plan.PlacementID,
+			"old_backend", plan.OldBackend,
+		)
+		return nil
+	}
 	deadline := o.clock.Now().Add(plan.DrainTimeout)
+	interval := o.drainPollMin
+	var lastRemaining uint64
+	first := true
 	for {
 		remaining, err := o.actions.OldBackendConnections(ctx, plan)
 		if err != nil {
@@ -154,8 +172,18 @@ func (o *Orchestrator) drain(ctx context.Context, plan domain.FlipPlan) error {
 			)
 			return domain.ErrDrainTimeout
 		}
+		if !first && remaining < lastRemaining {
+			interval = o.drainPollMin
+		} else if interval < o.drainPollMax {
+			interval *= 2
+			if interval > o.drainPollMax {
+				interval = o.drainPollMax
+			}
+		}
+		first = false
+		lastRemaining = remaining
 		select {
-		case <-o.clock.After(o.drainPollInterval):
+		case <-o.clock.After(interval):
 		case <-ctx.Done():
 			return ctx.Err()
 		}

@@ -2,6 +2,7 @@ package singboxgen
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
@@ -262,5 +263,78 @@ func TestBuild_DeterministicOutput(t *testing.T) {
 	b, _ := Build(state)
 	if string(a) != string(b) {
 		t.Error("output not deterministic across two builds")
+	}
+}
+
+// TestBuild_OutboundTagInvariant pins the contract between the renderer and the
+// drain path: every backend's outbound tag in the produced config, and every
+// route rule's outbound, must equal OutboundTagFor(backendID). The drain reads
+// sing-box /connections and looks up the per-outbound count by this exact tag,
+// so any drift here silently breaks graceful flip (drain would always see 0
+// connections and finish instantly, dropping live traffic).
+func TestBuild_OutboundTagInvariant(t *testing.T) {
+	ids := []domain.BackendID{
+		"praha-02",
+		"latvia-01",
+		"FR-01",
+		"node.with.dots",
+		"node_under",
+		"a",
+	}
+	backends := make([]BackendSpec, 0, len(ids))
+	placements := make([]domain.Placement, 0, len(ids))
+	for i, id := range ids {
+		backends = append(backends, BackendSpec{
+			ID: id, Address: "10.0.0.1", Port: 9000, Transport: domain.TransportWS,
+		})
+		placements = append(placements, domain.Placement{
+			ID:            domain.PlacementID(fmt.Sprintf("p-%d", i)),
+			ClientID:      domain.ClientID(fmt.Sprintf("uuid-%d", i)),
+			BackendNodeID: id,
+			Desired:       domain.DesiredActive,
+			Transport:     domain.TransportWS,
+		})
+	}
+	state := sampleState()
+	state.Backends = backends
+	state.Placements = placements
+
+	data, err := Build(state)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	got := parseConfig(t, data)
+
+	wantTags := map[string]domain.BackendID{}
+	for _, id := range ids {
+		wantTags[OutboundTagFor(id)] = id
+	}
+
+	outs := got["outbounds"].([]any)
+	seenOutbound := map[string]bool{}
+	for _, o := range outs {
+		m := o.(map[string]any)
+		if m["type"] == "direct" || m["type"] == "block" {
+			continue
+		}
+		tag := m["tag"].(string)
+		if _, ok := wantTags[tag]; !ok {
+			t.Errorf("outbound tag %q does not match OutboundTagFor() for any backend; "+
+				"drain will not find this tag in /connections", tag)
+		}
+		seenOutbound[tag] = true
+	}
+	for tag, id := range wantTags {
+		if !seenOutbound[tag] {
+			t.Errorf("backend %q rendered without outbound tag %q", id, tag)
+		}
+	}
+
+	rules := got["route"].(map[string]any)["rules"].([]any)
+	for _, r := range rules {
+		tag := r.(map[string]any)["outbound"].(string)
+		if _, ok := wantTags[tag]; !ok {
+			t.Errorf("route rule outbound %q does not match OutboundTagFor() for any backend", tag)
+		}
 	}
 }

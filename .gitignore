@@ -11,3 +11,4 @@
 .idea/shelf/
 .DS_Store
 vendor/
+.claude/

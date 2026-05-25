@@ -9,7 +9,7 @@ import (
 )
 
 type Subscriber interface {
-	Subscribe(ctx context.Context, subject, durable string, handler ports.MsgHandler) (ports.Unsubscribe, error)
+	Subscribe(ctx context.Context, subject, durable string, handler ports.MsgHandler, opts ...ports.SubscribeOption) (ports.Unsubscribe, error)
 }
 
 type Publisher interface {

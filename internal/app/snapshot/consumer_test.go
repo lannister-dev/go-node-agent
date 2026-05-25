@@ -20,7 +20,7 @@ type fakeSub struct {
 	handler ports.MsgHandler
 }
 
-func (f *fakeSub) Subscribe(_ context.Context, _, _ string, h ports.MsgHandler) (ports.Unsubscribe, error) {
+func (f *fakeSub) Subscribe(_ context.Context, _, _ string, h ports.MsgHandler, _ ...ports.SubscribeOption) (ports.Unsubscribe, error) {
 	f.mu.Lock()
 	f.handler = h
 	f.mu.Unlock()

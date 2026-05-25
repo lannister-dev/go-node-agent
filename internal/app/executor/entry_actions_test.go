@@ -163,18 +163,18 @@ func samplePlacement() domain.Placement {
 	}
 }
 
-func TestWarmBackend_OkWhenKnown(t *testing.T) {
+func TestValidateBackend_OkWhenKnown(t *testing.T) {
 	a := newActions(t, &fakeSingBox{}, newMemStore(), backendsRegistry())
 	plan := domain.FlipPlan{PlacementID: "p-1", OldBackend: "praha-02", NewBackend: "latvia-01"}
-	if err := a.WarmBackend(t.Context(), plan); err != nil {
-		t.Fatalf("warm: %v", err)
+	if err := a.ValidateBackend(t.Context(), plan); err != nil {
+		t.Fatalf("validate: %v", err)
 	}
 }
 
-func TestWarmBackend_FailsForUnknownBackend(t *testing.T) {
+func TestValidateBackend_FailsForUnknownBackend(t *testing.T) {
 	a := newActions(t, &fakeSingBox{}, newMemStore(), backendsRegistry())
 	plan := domain.FlipPlan{PlacementID: "p-1", OldBackend: "praha-02", NewBackend: "ghost"}
-	if err := a.WarmBackend(t.Context(), plan); err == nil {
+	if err := a.ValidateBackend(t.Context(), plan); err == nil {
 		t.Fatal("expected error for unknown backend")
 	}
 }

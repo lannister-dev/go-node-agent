@@ -8,9 +8,10 @@ import (
 )
 
 type Actions interface {
-	WarmBackend(ctx context.Context, plan domain.FlipPlan) error
+	ValidateBackend(ctx context.Context, plan domain.FlipPlan) error
 	SwapRoute(ctx context.Context, plan domain.FlipPlan) error
 	OldBackendConnections(ctx context.Context, plan domain.FlipPlan) (uint64, error)
+	OldBackendReachable(ctx context.Context, plan domain.FlipPlan) bool
 	CoolOldBackend(ctx context.Context, plan domain.FlipPlan) error
 }
 
@@ -26,5 +27,6 @@ func (realClock) After(d time.Duration) <-chan time.Time { return time.After(d) 
 
 type Options struct {
 	DrainPollInterval time.Duration
+	DrainPollMax      time.Duration
 	OverallBudgetMul  int
 }

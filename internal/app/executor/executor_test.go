@@ -38,9 +38,9 @@ type fakeFlipActions struct {
 	coolErr       error
 }
 
-func (f *fakeFlipActions) WarmBackend(_ context.Context, _ domain.FlipPlan) error {
+func (f *fakeFlipActions) ValidateBackend(_ context.Context, _ domain.FlipPlan) error {
 	f.mu.Lock()
-	f.calls = append(f.calls, "warm")
+	f.calls = append(f.calls, "validate")
 	f.mu.Unlock()
 	return f.warmErr
 }
@@ -64,6 +64,10 @@ func (f *fakeFlipActions) CoolOldBackend(_ context.Context, _ domain.FlipPlan) e
 	f.calls = append(f.calls, "cool")
 	f.mu.Unlock()
 	return f.coolErr
+}
+
+func (f *fakeFlipActions) OldBackendReachable(_ context.Context, _ domain.FlipPlan) bool {
+	return true
 }
 
 func (f *fakeFlipActions) callOrder() []string {
@@ -135,7 +139,7 @@ func TestFlipExecutor_BackendChangeRunsFlip(t *testing.T) {
 		t.Errorf("SimpleApply should not be called when flipping; got %d calls", simple.calls)
 	}
 	order := actions.callOrder()
-	expected := []string{"warm", "swap", "drain", "cool"}
+	expected := []string{"validate", "swap", "drain", "cool"}
 	if !sliceStartsWith(order, expected) {
 		t.Errorf("flip order: %v, expected prefix %v", order, expected)
 	}
@@ -208,12 +212,12 @@ func TestFlipExecutor_DrainTimeoutSwallowed(t *testing.T) {
 		t.Fatalf("drain timeout should be swallowed by FlipExecutor, got: %v", err)
 	}
 	order := actions.callOrder()
-	if len(order) < 2 || order[0] != "warm" || order[1] != "swap" {
-		t.Errorf("warm+swap should still run before drain: %v", order)
+	if len(order) < 2 || order[0] != "validate" || order[1] != "swap" {
+		t.Errorf("validate+swap should still run before drain: %v", order)
 	}
 }
 
-func TestFlipExecutor_WarmFailureSurfaces(t *testing.T) {
+func TestFlipExecutor_ValidateFailureSurfaces(t *testing.T) {
 	simple := &fakeSimpleApplier{}
 	actions := &fakeFlipActions{warmErr: errors.New("backend offline")}
 	exec := newExecutor(t, simple, actions)
@@ -222,7 +226,7 @@ func TestFlipExecutor_WarmFailureSurfaces(t *testing.T) {
 	desired := makePlacement("p-1", "latvia-01", "uuid-a", 2, domain.AppliedPending, domain.DesiredActive)
 
 	if _, err := exec.Apply(t.Context(), desired, existing, true); err == nil {
-		t.Fatal("expected error from warm failure")
+		t.Fatal("expected error from validate failure")
 	}
 }
 

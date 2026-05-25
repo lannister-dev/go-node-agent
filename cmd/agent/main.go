@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -31,6 +33,7 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/platform/idgen"
 	"github.com/lannister-dev/go-node-agent/internal/platform/logger"
 	"github.com/lannister-dev/go-node-agent/internal/platform/telemetry"
+	"github.com/lannister-dev/go-node-agent/internal/ports"
 	"github.com/lannister-dev/go-node-agent/internal/server"
 	"github.com/lannister-dev/go-node-agent/internal/wire"
 	"github.com/lannister-dev/go-node-agent/internal/wire/jsonv1"
@@ -51,28 +54,70 @@ func main() {
 }
 
 type entryStack struct {
-	executor applier.Executor
-	listener *backends.Listener
-	actions  *executor.EntryActions
-	singbox  *singbox.Client
-	registry *backends.Registry
+	executor  applier.Executor
+	listener  *backends.Listener
+	actions   *executor.EntryActions
+	singbox   *singbox.Client
+	registry  *backends.Registry
+	coalescer *executor.RenderCoalescer
 }
 
 type backendStack struct {
-	executor applier.Executor
-	xray     *xray.Client
+	executor  applier.Executor
+	xray      *xray.Client
+	rebuilder *backendRebuilder
 }
 
-type backendRebuilder struct{ xray *xray.Client }
+type backendRebuilder struct {
+	xray  *xray.Client
+	store *badger.Store
+	log   *slog.Logger
+}
 
-func (backendRebuilder) RebuildFromStore(_ context.Context) error { return nil }
+const backendRebuildConcurrency = 10
+
+func (r *backendRebuilder) RebuildFromStore(ctx context.Context) error {
+	placements, err := r.store.ListPlacements(ctx)
+	if err != nil {
+		return fmt.Errorf("backend-rebuild: list placements: %w", err)
+	}
+	var added atomic.Int32
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(backendRebuildConcurrency)
+	for _, p := range placements {
+		if p.Desired != domain.DesiredActive || p.IsRevoked || p.ClientID == "" {
+			continue
+		}
+		g.Go(func() error {
+			if err := r.xray.AddUser(gctx, ports.XrayUser{
+				ClientID:  p.ClientID,
+				Transport: p.Transport,
+			}); err != nil {
+				r.log.Warn("backend-rebuild: AddUser failed",
+					"placement_id", p.ID,
+					"client_id", p.ClientID,
+					"err", err,
+				)
+				return nil
+			}
+			added.Add(1)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	r.log.Info("backend-rebuild complete",
+		"placements_total", len(placements),
+		"users_added", added.Load(),
+	)
+	return nil
+}
 
 func pickRebuilder(es *entryStack, bs *backendStack) reconcile.Rebuilder {
 	if es != nil && es.actions != nil {
 		return es.actions
 	}
-	if bs != nil {
-		return backendRebuilder{xray: bs.xray}
+	if bs != nil && bs.rebuilder != nil {
+		return bs.rebuilder
 	}
 	return nil
 }
@@ -240,6 +285,12 @@ func run() error {
 	if stack != nil {
 		snapRebuilder = stack.actions
 	}
+	if backendStack != nil && backendStack.rebuilder != nil {
+		snapRebuilder = backendStack.rebuilder
+		if err := backendStack.rebuilder.RebuildFromStore(ctx); err != nil {
+			log.Warn("initial backend rebuild failed", "err", err)
+		}
+	}
 	snapConsumer, err := snapshot.NewConsumer(snapshot.ConsumerConfig{
 		NodeID:            nodeID,
 		ChunkSubject:      subjects.SnapshotChunk(nodeID),
@@ -314,6 +365,9 @@ func run() error {
 	}
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })
+	}
+	if stack != nil && stack.coalescer != nil {
+		g.Go(func() error { return stack.coalescer.Run(gctx) })
 	}
 
 	log.Info("agent running",
@@ -406,21 +460,43 @@ func buildEntryStack(
 		return nil, err
 	}
 
+	coalescer, err := executor.NewRenderCoalescer(actions, executor.CoalescerOptions{}, log)
+	if err != nil {
+		_ = sb.Close()
+		return nil, err
+	}
+	actions.AttachCoalescer(coalescer)
+
 	return &entryStack{
-		executor: flipExec,
-		listener: listener,
-		actions:  actions,
-		singbox:  sb,
-		registry: reg,
+		executor:  flipExec,
+		listener:  listener,
+		actions:   actions,
+		singbox:   sb,
+		registry:  reg,
+		coalescer: coalescer,
 	}, nil
 }
 
 func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger) (*backendStack, error) {
+	tagByXport := map[domain.TransportKind]string{}
+	if cfg.XrayInboundTagWS != "" {
+		tagByXport[domain.TransportWS] = cfg.XrayInboundTagWS
+	}
+	if cfg.XrayInboundTagReality != "" {
+		tagByXport[domain.TransportReality] = cfg.XrayInboundTagReality
+	}
+	if cfg.XrayInboundTagXHTTP != "" {
+		tagByXport[domain.TransportXHTTP] = cfg.XrayInboundTagXHTTP
+	}
+	if cfg.XrayInboundTagTCP != "" {
+		tagByXport[domain.TransportTCP] = cfg.XrayInboundTagTCP
+	}
 	xc, err := xray.New(xray.Options{
-		Address:    cfg.XrayGRPCAddr,
-		InboundTag: cfg.XrayInboundTag,
-		Timeout:    3 * time.Second,
-		Logger:     log,
+		Address:           cfg.XrayGRPCAddr,
+		InboundTag:        cfg.XrayInboundTag,
+		InboundTagByXport: tagByXport,
+		Timeout:           3 * time.Second,
+		Logger:            log,
 	})
 	if err != nil {
 		return nil, err
@@ -430,7 +506,8 @@ func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger)
 		_ = xc.Close()
 		return nil, err
 	}
-	return &backendStack{executor: be, xray: xc}, nil
+	rb := &backendRebuilder{xray: xc, store: store, log: log}
+	return &backendStack{executor: be, xray: xc, rebuilder: rb}, nil
 }
 
 func runBootstrapWithRetry(ctx context.Context, log *slog.Logger, bs *bootstrap.Bootstrap) (bootstrap.Result, error) {

@@ -51,11 +51,15 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 	if err != nil {
 		return fmt.Errorf("xray: wrap add op: %w", err)
 	}
+	tag := c.tagFor(user.Transport)
+	if tag == "" {
+		return fmt.Errorf("xray: no inbound tag mapped for transport %q", user.Transport)
+	}
 	if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
-		Tag:       c.inboundTag,
+		Tag:       tag,
 		Operation: opTM,
 	}); err != nil {
-		return fmt.Errorf("xray: AlterInbound add %s: %w", user.ClientID, err)
+		return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
 	}
 	return nil
 }
@@ -72,13 +76,43 @@ func (c *Client) RemoveUser(ctx context.Context, clientID domain.ClientID) error
 	if err != nil {
 		return fmt.Errorf("xray: wrap remove op: %w", err)
 	}
-	if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
-		Tag:       c.inboundTag,
-		Operation: opTM,
-	}); err != nil {
-		return fmt.Errorf("xray: AlterInbound remove %s: %w", clientID, err)
+	tags := c.allKnownTags()
+	if len(tags) == 0 {
+		return fmt.Errorf("xray: no inbound tags configured for remove %s", clientID)
+	}
+	var lastErr error
+	removed := false
+	for _, tag := range tags {
+		if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
+			Tag:       tag,
+			Operation: opTM,
+		}); err != nil {
+			lastErr = fmt.Errorf("xray: AlterInbound remove %s tag=%s: %w", clientID, tag, err)
+			continue
+		}
+		removed = true
+	}
+	if !removed && lastErr != nil {
+		return lastErr
 	}
 	return nil
+}
+
+func (c *Client) allKnownTags() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(c.tagByXport)+1)
+	if c.inboundTag != "" {
+		seen[c.inboundTag] = true
+		out = append(out, c.inboundTag)
+	}
+	for _, tag := range c.tagByXport {
+		if tag == "" || seen[tag] {
+			continue
+		}
+		seen[tag] = true
+		out = append(out, tag)
+	}
+	return out
 }
 
 func (c *Client) ListUsers(_ context.Context) ([]ports.XrayUser, error) {

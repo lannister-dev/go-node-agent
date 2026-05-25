@@ -30,6 +30,16 @@ type placementCommandDTO struct {
 	UpdatedAt        *string `json:"updated_at,omitempty"`
 }
 
+func PlacementIDFromCommandEvent(data []byte) (string, error) {
+	var dto struct {
+		PlacementID string `json:"placement_id"`
+	}
+	if err := json.Unmarshal(data, &dto); err != nil {
+		return "", err
+	}
+	return dto.PlacementID, nil
+}
+
 func UnmarshalPlacementCommandEvent(data []byte) (domain.PlacementCommand, error) {
 	var dto placementCommandDTO
 	if err := json.Unmarshal(data, &dto); err != nil {
