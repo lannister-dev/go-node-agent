@@ -25,12 +25,12 @@ type Options struct {
 }
 
 type Client struct {
-	conn         *grpc.ClientConn
-	handler      cmd.HandlerServiceClient
-	inboundTag   string
-	tagByXport   map[domain.TransportKind]string
-	timeout      time.Duration
-	log          *slog.Logger
+	conn       *grpc.ClientConn
+	handler    cmd.HandlerServiceClient
+	inboundTag string
+	tagByXport map[domain.TransportKind]string
+	timeout    time.Duration
+	log        *slog.Logger
 }
 
 func New(opts Options) (*Client, error) {
