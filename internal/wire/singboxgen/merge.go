@@ -61,7 +61,9 @@ func mergeInbounds(root map[string]any, state NodeState) error {
 			continue
 		}
 		if m["tag"] == state.Inbound.Tag {
-			m["users"] = jsonUsers
+			if len(jsonUsers) > 0 {
+				m["users"] = jsonUsers
+			}
 			inbounds[i] = m
 			matched = true
 		}
