@@ -60,10 +60,6 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 		Tag:       tag,
 		Operation: opTM,
 	}); err != nil {
-		// Legacy users may exist with stale flow/transport (e.g. created by an
-		// older agent without xtls-rprx-vision). Xray rejects re-add with
-		// "already exists"; remove from every inbound and re-add so the current
-		// flow takes effect.
 		if !isAlreadyExistsError(err) {
 			return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
 		}

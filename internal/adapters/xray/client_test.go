@@ -194,8 +194,6 @@ func TestAddUser_ServerError(t *testing.T) {
 func TestAddUser_RemovesAndRetriesOnAlreadyExists(t *testing.T) {
 	fake := &fakeHandlerServer{}
 	fake.respErrFunc = func(req *cmd.AlterInboundRequest) error {
-		// Fail only the very first AlterInbound (the initial add). Subsequent
-		// remove+re-add calls succeed, simulating a legacy user being healed.
 		if len(fake.received) == 1 && req.GetOperation().GetType() == typeAddUserOperation {
 			return errors.New("proxy/vless: User x already exists.")
 		}
