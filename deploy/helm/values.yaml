@@ -23,6 +23,14 @@ tolerations:
 priorityClassName: ""
 hostNetwork: false
 dnsPolicy: ClusterFirst
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+    - name: timeout
+      value: "2"
+    - name: attempts
+      value: "5"
 
 podLabels: {}
 podAnnotations:
