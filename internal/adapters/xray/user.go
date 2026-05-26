@@ -64,7 +64,7 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 			return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
 		}
 		if rmErr := c.RemoveUser(ctx, user.ClientID); rmErr != nil {
-			return fmt.Errorf("xray: re-add %s tag=%s: cleanup failed: %w (add error: %v)", user.ClientID, tag, rmErr, err)
+			return fmt.Errorf("xray: re-add %s tag=%s: cleanup failed: %w", user.ClientID, tag, errors.Join(err, rmErr))
 		}
 		if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
 			Tag:       tag,

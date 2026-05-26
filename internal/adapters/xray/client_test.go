@@ -195,7 +195,7 @@ func TestAddUser_RemovesAndRetriesOnAlreadyExists(t *testing.T) {
 	fake := &fakeHandlerServer{}
 	fake.respErrFunc = func(req *cmd.AlterInboundRequest) error {
 		if len(fake.received) == 1 && req.GetOperation().GetType() == typeAddUserOperation {
-			return errors.New("proxy/vless: User x already exists.")
+			return errors.New("proxy/vless: user already exists")
 		}
 		return nil
 	}
