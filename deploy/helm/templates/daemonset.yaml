@@ -133,7 +133,7 @@ spec:
             - name: HAPROXY_SOCKET
               value: /var/run/haproxy/{{ .Values.haproxy.socketName }}
             - name: SINGBOX_CONFIG_PATH
-              value: /var/lib/sing-box-shared/sing-box/config.json
+              value: {{ .Values.singbox.configPath | default "/var/lib/sing-box-shared/config.json" | quote }}
             - name: ENABLE_EXECUTOR
               value: {{ .Values.executor.enabled | quote }}
             - name: SINGBOX_INBOUND_TAG
