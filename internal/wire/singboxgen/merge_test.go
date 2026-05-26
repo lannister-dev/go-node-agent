@@ -135,6 +135,33 @@ func TestMergeBase_PrependsDynamicRoutePrependsKeepsBaseRules(t *testing.T) {
 	}
 }
 
+func TestMergeBase_BackendOutboundsAreplainVlessWithoutTLS(t *testing.T) {
+	// Backend outbounds carry entry→backend traffic over wg-mesh.
+	// Wg-mesh already provides authenticated encryption; layering Reality on top
+	// adds no security but breaks sing-box when utls.fingerprint is missing.
+	state := mergeState()
+	for i := range state.Backends {
+		state.Backends[i].Reality = RealitySpec{}
+	}
+	merged, err := MergeBase(baseConfigJSON(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(merged, &got)
+	outs := got["outbounds"].([]any)
+	for _, o := range outs {
+		m := o.(map[string]any)
+		tag, _ := m["tag"].(string)
+		if !strings.HasPrefix(tag, "backend-") {
+			continue
+		}
+		if _, has := m["tls"]; has {
+			t.Errorf("backend outbound %q must not carry tls when Reality is disabled: %+v", tag, m)
+		}
+	}
+}
+
 func TestMergeBase_IdempotentAcrossRebuilds(t *testing.T) {
 	state := mergeState()
 	once, _ := MergeBase(baseConfigJSON(), state)

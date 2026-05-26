@@ -104,20 +104,22 @@ func (l *Listener) Handle(_ context.Context, msg ports.Msg) error {
 }
 
 func (l *Listener) buildSpec(change jsonv1.UpstreamChange) singboxgen.BackendSpec {
-	addr := change.RealityIP
+	addr := change.InternalWgIP
+	if addr == "" {
+		addr = change.RealityIP
+	}
 	if addr == "" {
 		addr = change.PublicDomain
 	}
-	spec := singboxgen.BackendSpec{
+	port := l.cfg.Defaults.Port
+	if change.AgentPort != 0 {
+		port = change.AgentPort
+	}
+	return singboxgen.BackendSpec{
 		ID:         change.BackendID,
 		Address:    addr,
-		Port:       l.cfg.Defaults.Port,
+		Port:       port,
 		ServerName: change.PublicDomain,
 		Transport:  l.cfg.Defaults.Transport,
-		Reality:    l.cfg.Defaults.Reality,
 	}
-	if change.RealityIP != "" {
-		spec.Reality.Enabled = true
-	}
-	return spec
 }

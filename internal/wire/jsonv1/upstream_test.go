@@ -35,6 +35,28 @@ func TestUnmarshalUpstreamChanged_Full(t *testing.T) {
 	}
 }
 
+func TestUnmarshalUpstreamChanged_WithWgIPAndPort(t *testing.T) {
+	data := []byte(`{
+		"event_id": "evt-3",
+		"node_id": "entry-1",
+		"emitted_at": "2026-05-26T10:00:00Z",
+		"upstream_node_id": "backend-1",
+		"upstream_public_domain": "",
+		"upstream_internal_wg_ip": "10.10.0.5",
+		"upstream_agent_port": 10100
+	}`)
+	change, err := UnmarshalUpstreamChanged(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if change.InternalWgIP != "10.10.0.5" {
+		t.Errorf("internal_wg_ip: %q", change.InternalWgIP)
+	}
+	if change.AgentPort != 10100 {
+		t.Errorf("agent_port: %d", change.AgentPort)
+	}
+}
+
 func TestUnmarshalUpstreamChanged_OmitsRealityIP(t *testing.T) {
 	data := []byte(`{
 		"schema_version": 1,

@@ -72,7 +72,7 @@ executor:
     listenPort: 443
     logLevel: info
   backendDefaults:
-    port: 9000
+    port: 10100
     transport: ws
   xray:
     grpcAddr: 127.0.0.1:10085
