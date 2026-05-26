@@ -23,10 +23,11 @@ var _ ports.Xray = (*Client)(nil)
 
 type fakeHandlerServer struct {
 	cmd.UnimplementedHandlerServiceServer
-	mu       sync.Mutex
-	received []*cmd.AlterInboundRequest
-	respErr  error
-	delay    time.Duration
+	mu          sync.Mutex
+	received    []*cmd.AlterInboundRequest
+	respErr     error
+	respErrFunc func(*cmd.AlterInboundRequest) error
+	delay       time.Duration
 }
 
 func (f *fakeHandlerServer) AlterInbound(ctx context.Context, req *cmd.AlterInboundRequest) (*cmd.AlterInboundResponse, error) {
@@ -40,7 +41,11 @@ func (f *fakeHandlerServer) AlterInbound(ctx context.Context, req *cmd.AlterInbo
 	f.mu.Lock()
 	f.received = append(f.received, proto.Clone(req).(*cmd.AlterInboundRequest))
 	err := f.respErr
+	fn := f.respErrFunc
 	f.mu.Unlock()
+	if fn != nil {
+		err = fn(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -183,6 +188,41 @@ func TestAddUser_ServerError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAddUser_RemovesAndRetriesOnAlreadyExists(t *testing.T) {
+	fake := &fakeHandlerServer{}
+	fake.respErrFunc = func(req *cmd.AlterInboundRequest) error {
+		// Fail only the very first AlterInbound (the initial add). Subsequent
+		// remove+re-add calls succeed, simulating a legacy user being healed.
+		if len(fake.received) == 1 && req.GetOperation().GetType() == typeAddUserOperation {
+			return errors.New("proxy/vless: User x already exists.")
+		}
+		return nil
+	}
+	c := startFakeServer(t, fake)
+	if err := c.AddUser(t.Context(), ports.XrayUser{
+		ClientID:  "01234567-89ab-cdef-0123-456789abcdef",
+		Transport: domain.TransportReality,
+	}); err != nil {
+		t.Fatalf("expected self-heal to succeed, got: %v", err)
+	}
+	reqs := fake.snapshot()
+	var addOps, removeOps int
+	for _, r := range reqs {
+		switch r.GetOperation().GetType() {
+		case typeAddUserOperation:
+			addOps++
+		case typeRemoveUserOperation:
+			removeOps++
+		}
+	}
+	if addOps != 2 {
+		t.Errorf("expected 2 add ops (initial + retry), got %d", addOps)
+	}
+	if removeOps == 0 {
+		t.Errorf("expected at least 1 remove op for self-heal, got 0")
 	}
 }
 

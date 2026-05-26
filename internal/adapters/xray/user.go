@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 
@@ -59,9 +60,28 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 		Tag:       tag,
 		Operation: opTM,
 	}); err != nil {
-		return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
+		// Legacy users may exist with stale flow/transport (e.g. created by an
+		// older agent without xtls-rprx-vision). Xray rejects re-add with
+		// "already exists"; remove from every inbound and re-add so the current
+		// flow takes effect.
+		if !isAlreadyExistsError(err) {
+			return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
+		}
+		if rmErr := c.RemoveUser(ctx, user.ClientID); rmErr != nil {
+			return fmt.Errorf("xray: re-add %s tag=%s: cleanup failed: %w (add error: %v)", user.ClientID, tag, rmErr, err)
+		}
+		if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
+			Tag:       tag,
+			Operation: opTM,
+		}); err != nil {
+			return fmt.Errorf("xray: AlterInbound re-add %s tag=%s: %w", user.ClientID, tag, err)
+		}
 	}
 	return nil
+}
+
+func isAlreadyExistsError(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "already exists")
 }
 
 func (c *Client) RemoveUser(ctx context.Context, clientID domain.ClientID) error {
