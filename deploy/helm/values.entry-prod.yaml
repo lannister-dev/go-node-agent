@@ -36,8 +36,8 @@ env:
 executor:
   enabled: true
   singbox:
-    inboundTag: vless-in
-    listenAddress: "::"
+    inboundTag: vless-reality-in
+    listenAddress: "0.0.0.0"
     listenPort: 443
     logLevel: info
 
