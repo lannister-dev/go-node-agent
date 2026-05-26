@@ -45,7 +45,7 @@ env:
 executor:
   enabled: true
   xray:
-    grpcAddr: vpn-xray-dev-xray.vpn-dev.svc.cluster.local:10085
+    grpcAddr: $(NODE_IP):10085
     inboundTag: vless-ws  # fallback when transport-specific tag below missing
     inboundTagWS: vless-ws
     inboundTagReality: vless-reality
