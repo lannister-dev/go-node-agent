@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,7 +14,6 @@ import (
 	cmd "github.com/lannister-dev/go-node-agent/pkg/proto/xray/app/proxyman/command"
 	xprotocol "github.com/lannister-dev/go-node-agent/pkg/proto/xray/common/protocol"
 	xserial "github.com/lannister-dev/go-node-agent/pkg/proto/xray/common/serial"
-	xvless "github.com/lannister-dev/go-node-agent/pkg/proto/xray/proxy/vless"
 )
 
 const (
@@ -32,13 +32,9 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 	ctx, cancel := c.withTimeout(ctx)
 	defer cancel()
 
-	account := &xvless.Account{
-		Id:   string(user.ClientID),
-		Flow: vlessFlowFor(user.Transport),
-	}
-	accountTM, err := wrapTyped(typeVlessAccount, account)
-	if err != nil {
-		return fmt.Errorf("xray: wrap account: %w", err)
+	accountTM := &xserial.TypedMessage{
+		Type:  typeVlessAccount,
+		Value: encodeVlessAccount(string(user.ClientID), vlessFlowFor(user.Transport)),
 	}
 
 	op := &cmd.AddUserOperation{
@@ -152,6 +148,20 @@ func vlessFlowFor(t domain.TransportKind) string {
 		return "xtls-rprx-vision"
 	}
 	return ""
+}
+
+func encodeVlessAccount(id, flow string) []byte {
+	out := appendLenDelimited(nil, 1, []byte(id))
+	if flow != "" {
+		out = appendLenDelimited(out, 2, []byte(flow))
+	}
+	return out
+}
+
+func appendLenDelimited(buf []byte, fieldNum uint64, value []byte) []byte {
+	buf = binary.AppendUvarint(buf, fieldNum<<3|2)
+	buf = binary.AppendUvarint(buf, uint64(len(value)))
+	return append(buf, value...)
 }
 
 func (c *Client) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {

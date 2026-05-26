@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"sync"
@@ -16,7 +17,6 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
 	cmd "github.com/lannister-dev/go-node-agent/pkg/proto/xray/app/proxyman/command"
-	xvless "github.com/lannister-dev/go-node-agent/pkg/proto/xray/proxy/vless"
 )
 
 var _ ports.Xray = (*Client)(nil)
@@ -95,7 +95,12 @@ func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
 	return c
 }
 
-func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperation, *xvless.Account) {
+type decodedAccount struct {
+	id   string
+	flow string
+}
+
+func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperation, decodedAccount) {
 	t.Helper()
 	if req.GetOperation().GetType() != typeAddUserOperation {
 		t.Fatalf("op type: %s", req.GetOperation().GetType())
@@ -107,11 +112,34 @@ func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperat
 	if op.GetUser().GetAccount().GetType() != typeVlessAccount {
 		t.Fatalf("account type: %s", op.GetUser().GetAccount().GetType())
 	}
-	var acc xvless.Account
-	if err := proto.Unmarshal(op.GetUser().GetAccount().GetValue(), &acc); err != nil {
-		t.Fatalf("unmarshal account: %v", err)
+	return &op, decodeVlessAccount(t, op.GetUser().GetAccount().GetValue())
+}
+
+func decodeVlessAccount(t *testing.T, raw []byte) decodedAccount {
+	t.Helper()
+	var acc decodedAccount
+	for len(raw) > 0 {
+		tag, n := binary.Uvarint(raw)
+		if n <= 0 {
+			t.Fatalf("bad tag in account")
+		}
+		raw = raw[n:]
+		fieldNum := tag >> 3
+		ln, n := binary.Uvarint(raw)
+		if n <= 0 {
+			t.Fatalf("bad length in account")
+		}
+		raw = raw[n:]
+		val := string(raw[:ln])
+		raw = raw[ln:]
+		switch fieldNum {
+		case 1:
+			acc.id = val
+		case 2:
+			acc.flow = val
+		}
 	}
-	return &op, &acc
+	return acc
 }
 
 func TestAddUser_VLESS_WS(t *testing.T) {
@@ -134,11 +162,11 @@ func TestAddUser_VLESS_WS(t *testing.T) {
 	if op.GetUser().GetEmail() != "01234567-89ab-cdef-0123-456789abcdef" {
 		t.Errorf("email: %s", op.GetUser().GetEmail())
 	}
-	if acc.GetId() != "01234567-89ab-cdef-0123-456789abcdef" {
-		t.Errorf("account id: %s", acc.GetId())
+	if acc.id != "01234567-89ab-cdef-0123-456789abcdef" {
+		t.Errorf("account id: %s", acc.id)
 	}
-	if acc.GetFlow() != "" {
-		t.Errorf("ws should have empty flow, got %q", acc.GetFlow())
+	if acc.flow != "" {
+		t.Errorf("ws should have empty flow, got %q", acc.flow)
 	}
 }
 
@@ -152,8 +180,8 @@ func TestAddUser_RealityHasVisionFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, acc := decodeAddOp(t, fake.snapshot()[0])
-	if acc.GetFlow() != "xtls-rprx-vision" {
-		t.Errorf("reality flow: %q", acc.GetFlow())
+	if acc.flow != "xtls-rprx-vision" {
+		t.Errorf("reality flow: %q", acc.flow)
 	}
 }
 
