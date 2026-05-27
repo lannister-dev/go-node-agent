@@ -72,6 +72,12 @@ env:
   natsHeartbeatPrefix: agent.heartbeats
   natsSyncReportPrefix: agent.sync_reports
 
+wg:
+  enabled: false
+  interface: wg0
+  keyDir: /var/lib/go-node-agent/wg
+  listenPort: 51820
+
 executor:
   enabled: false
   singbox:

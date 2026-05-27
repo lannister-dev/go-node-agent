@@ -70,7 +70,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ include "go-node-agent.imageTag" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- $sc := .Values.securityContext | deepCopy }}
+            {{- if .Values.wg.enabled }}
+            {{- $_ := set $sc "runAsNonRoot" false }}
+            {{- $_ := set $sc "runAsUser" 0 }}
+            {{- $_ := set $sc "readOnlyRootFilesystem" false }}
+            {{- $caps := default (dict) (get $sc "capabilities") }}
+            {{- $_ := set $caps "add" (append (default (list) (get $caps "add")) "NET_ADMIN") }}
+            {{- $_ := set $sc "capabilities" $caps }}
+            {{- end }}
+            {{- toYaml $sc | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080
@@ -175,6 +184,16 @@ spec:
             {{- with .Values.executor.xray.inboundTagTCP }}
             - name: XRAY_INBOUND_TAG_TCP
               value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.wg.enabled }}
+            - name: WG_ENABLED
+              value: "true"
+            - name: WG_INTERFACE
+              value: {{ .Values.wg.interface | quote }}
+            - name: WG_KEY_DIR
+              value: {{ .Values.wg.keyDir | quote }}
+            - name: WG_LISTEN_PORT
+              value: {{ .Values.wg.listenPort | quote }}
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

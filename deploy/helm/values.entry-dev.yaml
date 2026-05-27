@@ -61,3 +61,6 @@ podAnnotations:
   prometheus-env: dev
   prometheus-app: go-node-agent
   prometheus-role: entry
+
+wg:
+  enabled: true

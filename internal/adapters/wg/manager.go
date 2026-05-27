@@ -13,17 +13,17 @@ import (
 )
 
 const (
-	DefaultListenPort        = 51820
-	DefaultKeepaliveSec      = 25
-	DefaultInterface         = "wg0"
-	privateKeyFile           = "wg-private.key"
+	DefaultListenPort   = 51820
+	DefaultKeepaliveSec = 25
+	DefaultInterface    = "wg0"
+	privateKeyFile      = "wg-private.key"
 )
 
 type Peer struct {
-	PublicKey string
-	Endpoint  string
+	PublicKey  string
+	Endpoint   string
 	ListenPort int
-	Address   string
+	Address    string
 }
 
 type ApplyState struct {
@@ -33,9 +33,9 @@ type ApplyState struct {
 }
 
 type Manager struct {
-	iface    string
-	keyDir   string
-	priv     wgtypes.Key
+	iface  string
+	keyDir string
+	priv   wgtypes.Key
 }
 
 func New(iface, keyDir string) (*Manager, error) {
@@ -71,7 +71,7 @@ func (m *Manager) Apply(s ApplyState) error {
 	if err != nil {
 		return fmt.Errorf("wg: new client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	peers, err := buildPeers(s.Peers)
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/adapters/controlapi"
 	natsa "github.com/lannister-dev/go-node-agent/internal/adapters/nats"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/singbox"
+	"github.com/lannister-dev/go-node-agent/internal/adapters/wg"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/xray"
 	"github.com/lannister-dev/go-node-agent/internal/app/applier"
 	"github.com/lannister-dev/go-node-agent/internal/app/backends"
@@ -28,6 +29,7 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/app/reconcile"
 	"github.com/lannister-dev/go-node-agent/internal/app/snapshot"
 	"github.com/lannister-dev/go-node-agent/internal/app/traffic"
+	"github.com/lannister-dev/go-node-agent/internal/app/wgmesh"
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/platform/config"
 	"github.com/lannister-dev/go-node-agent/internal/platform/idgen"
@@ -313,6 +315,25 @@ func run() error {
 		if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
 			log.Warn("snapshot request failed", "err", rerr)
 		}
+	}
+
+	if cfg.WgEnabled {
+		wgMgr, err := wg.New(cfg.WgInterface, cfg.WgKeyDir)
+		if err != nil {
+			return fmt.Errorf("wg manager: %w", err)
+		}
+		wgSvc, err := wgmesh.New(wgmesh.Config{
+			NodeID:     nodeID,
+			ListenPort: int(cfg.WgListenPort),
+		}, wgMgr, natsTr, log)
+		if err != nil {
+			return fmt.Errorf("wgmesh service: %w", err)
+		}
+		go func() {
+			if err := wgSvc.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Error("wgmesh exited", "err", err)
+			}
+		}()
 	}
 
 	var trafficReporter *traffic.Reporter

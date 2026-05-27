@@ -65,6 +65,11 @@ type Config struct {
 	BandwidthCapacityMbps   uint16
 	OTLPEndpoint            string
 	OTLPInsecure            bool
+
+	WgEnabled    bool
+	WgInterface  string
+	WgKeyDir     string
+	WgListenPort uint16
 }
 
 func Load() (Config, error) {
@@ -118,6 +123,12 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 	cfg.EnableExecutor = envBool("ENABLE_EXECUTOR", false)
+	cfg.WgEnabled = envBool("WG_ENABLED", false)
+	cfg.WgInterface = env("WG_INTERFACE", "wg0")
+	cfg.WgKeyDir = env("WG_KEY_DIR", "/var/lib/go-node-agent/wg")
+	if cfg.WgListenPort, err = envU16("WG_LISTEN_PORT", 51820); err != nil {
+		return cfg, err
+	}
 
 	if cfg.HeartbeatInterval, err = envDur("HEARTBEAT_INTERVAL", 10*time.Second); err != nil {
 		return cfg, err

@@ -72,3 +72,6 @@ podAnnotations:
   prometheus-env: dev
   prometheus-app: go-node-agent
   prometheus-role: backend
+
+wg:
+  enabled: true
