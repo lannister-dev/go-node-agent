@@ -48,7 +48,7 @@ func (t *Transport) KVWatchKey(ctx context.Context, bucket, key string, onUpdate
 	if err != nil {
 		return fmt.Errorf("nats kv watch %s/%s: %w", bucket, key, err)
 	}
-	defer watcher.Stop()
+	defer func() { _ = watcher.Stop() }()
 	for {
 		select {
 		case <-ctx.Done():
