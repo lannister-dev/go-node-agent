@@ -35,7 +35,7 @@ func ensureInterface(name string, addr net.IP, mask net.IPMask) error {
 	}
 	have := false
 	for _, a := range addrs {
-		if a.IPNet != nil && a.IP.Equal(desired.IPNet.IP) {
+		if a.IPNet != nil && a.IP.Equal(desired.IP) {
 			have = true
 			continue
 		}
