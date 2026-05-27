@@ -90,6 +90,15 @@ func (m *Manager) Apply(s ApplyState) error {
 	if err := client.ConfigureDevice(m.iface, cfg); err != nil {
 		return fmt.Errorf("wg: configure %s: %w", m.iface, err)
 	}
+	allowed := make([]*net.IPNet, 0, len(peers))
+	for _, p := range peers {
+		for i := range p.AllowedIPs {
+			allowed = append(allowed, &p.AllowedIPs[i])
+		}
+	}
+	if err := syncRoutes(m.iface, allowed); err != nil {
+		return err
+	}
 	return nil
 }
 
