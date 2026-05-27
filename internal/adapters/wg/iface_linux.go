@@ -3,6 +3,7 @@
 package wg
 
 import (
+	"errors"
 	"fmt"
 	"net"
 
@@ -12,7 +13,8 @@ import (
 func ensureInterface(name string, addr net.IP, mask net.IPMask) error {
 	link, err := netlink.LinkByName(name)
 	if err != nil {
-		if _, ok := err.(netlink.LinkNotFoundError); !ok {
+		var notFound netlink.LinkNotFoundError
+		if !errors.As(err, &notFound) {
 			return fmt.Errorf("wg: lookup %s: %w", name, err)
 		}
 		la := netlink.NewLinkAttrs()
@@ -33,7 +35,7 @@ func ensureInterface(name string, addr net.IP, mask net.IPMask) error {
 	}
 	have := false
 	for _, a := range addrs {
-		if a.IPNet != nil && a.IPNet.IP.Equal(desired.IPNet.IP) {
+		if a.IPNet != nil && a.IP.Equal(desired.IPNet.IP) {
 			have = true
 			continue
 		}
