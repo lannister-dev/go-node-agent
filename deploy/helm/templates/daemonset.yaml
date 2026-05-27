@@ -76,7 +76,8 @@ spec:
             {{- $_ := set $sc "runAsUser" 0 }}
             {{- $_ := set $sc "readOnlyRootFilesystem" false }}
             {{- $caps := default (dict) (get $sc "capabilities") }}
-            {{- $_ := set $caps "add" (append (default (list) (get $caps "add")) "NET_ADMIN") }}
+            {{- $existing := default (list) (get $caps "add") }}
+            {{- $_ := set $caps "add" (append (append $existing "NET_ADMIN") "DAC_OVERRIDE") }}
             {{- $_ := set $sc "capabilities" $caps }}
             {{- end }}
             {{- toYaml $sc | nindent 12 }}
