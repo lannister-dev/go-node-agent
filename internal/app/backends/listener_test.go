@@ -106,8 +106,8 @@ func TestListener_PrefersInternalWgIP(t *testing.T) {
 	if spec.Address != "10.10.0.5" {
 		t.Errorf("must prefer internal_wg_ip; got %s", spec.Address)
 	}
-	if spec.Port != 10100 {
-		t.Errorf("must use upstream_agent_port; got %d", spec.Port)
+	if spec.Port != 9000 {
+		t.Errorf("must use Defaults.Port (BACKEND_DEFAULT_PORT), not upstream_agent_port; got %d", spec.Port)
 	}
 	if spec.Reality.Enabled {
 		t.Error("backend outbound must never enable Reality (wg-mesh internal traffic is plain)")

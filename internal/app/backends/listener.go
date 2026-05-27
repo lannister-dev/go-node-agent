@@ -112,9 +112,6 @@ func (l *Listener) buildSpec(change jsonv1.UpstreamChange) singboxgen.BackendSpe
 		addr = change.PublicDomain
 	}
 	port := l.cfg.Defaults.Port
-	if change.AgentPort != 0 {
-		port = change.AgentPort
-	}
 	return singboxgen.BackendSpec{
 		ID:         change.BackendID,
 		Address:    addr,
