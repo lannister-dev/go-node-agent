@@ -12,6 +12,9 @@ image:
 imagePullSecrets:
   - name: harbor-registry
 
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
 nodeSelector:
   role: vpn
   channel: dev
