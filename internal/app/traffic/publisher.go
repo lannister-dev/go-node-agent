@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync/atomic"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
@@ -24,19 +25,23 @@ type PublisherConfig struct {
 	Interval time.Duration
 }
 
-type Publisher struct {
-	cfg     PublisherConfig
-	pub     ports.Publisher
-	src     *Reporter
-	conns   ConnectionsSource
-	log     *slog.Logger
-	lastUp  atomic.Uint64
-	lastDn  atomic.Uint64
-	totalUp atomic.Uint64
-	totalDn atomic.Uint64
+type connState struct {
+	upload   uint64
+	download uint64
+	backend  string
 }
 
-func NewPublisher(cfg PublisherConfig, pub ports.Publisher, src *Reporter, conns ConnectionsSource, log *slog.Logger) (*Publisher, error) {
+type Publisher struct {
+	cfg   PublisherConfig
+	pub   ports.Publisher
+	conns ConnectionsSource
+	log   *slog.Logger
+
+	mu       sync.Mutex
+	lastConn map[string]connState
+}
+
+func NewPublisher(cfg PublisherConfig, pub ports.Publisher, _ *Reporter, conns ConnectionsSource, log *slog.Logger) (*Publisher, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("traffic-publisher: NodeID required")
 	}
@@ -49,13 +54,19 @@ func NewPublisher(cfg PublisherConfig, pub ports.Publisher, src *Reporter, conns
 	if cfg.Interval <= 0 {
 		cfg.Interval = 30 * time.Second
 	}
-	if pub == nil || src == nil {
-		return nil, errors.New("traffic-publisher: pub and src required")
+	if pub == nil {
+		return nil, errors.New("traffic-publisher: pub required")
 	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Publisher{cfg: cfg, pub: pub, src: src, conns: conns, log: log.With("component", "traffic-publisher")}, nil
+	return &Publisher{
+		cfg:      cfg,
+		pub:      pub,
+		conns:    conns,
+		log:      log.With("component", "traffic-publisher"),
+		lastConn: map[string]connState{},
+	}, nil
 }
 
 type nodeTrafficPayload struct {
@@ -84,44 +95,89 @@ func (p *Publisher) Run(ctx context.Context) error {
 }
 
 func (p *Publisher) tick(ctx context.Context) error {
-	upCum := p.src.UpBytes()
-	dnCum := p.src.DownBytes()
-	deltaUp := upCum - p.lastUp.Load()
-	deltaDn := dnCum - p.lastDn.Load()
-
-	var active uint64
-	if p.conns != nil {
-		if cs, cerr := p.conns.Connections(ctx); cerr == nil {
-			active = cs.Total
-		} else {
-			p.log.Debug("connections fetch failed", "err", cerr)
-		}
-	}
-
-	if deltaUp == 0 && deltaDn == 0 && active == 0 {
+	if p.conns == nil {
 		return nil
 	}
-	p.lastUp.Store(upCum)
-	p.lastDn.Store(dnCum)
-	p.totalUp.Add(deltaUp)
-	p.totalDn.Add(deltaDn)
-
-	payload := nodeTrafficPayload{
-		BytesIn:        deltaDn,
-		BytesOut:       deltaUp,
-		ActiveSessions: active,
-	}
-	if p.cfg.NodeRole == "entry" || p.cfg.NodeRole == "whitelist_entry" {
-		payload.EntryNodeID = string(p.cfg.NodeID)
-	} else {
-		payload.BackendNodeID = string(p.cfg.NodeID)
-	}
-	data, err := json.Marshal(payload)
+	snap, err := p.conns.Connections(ctx)
 	if err != nil {
-		return fmt.Errorf("traffic-publisher: marshal: %w", err)
+		return fmt.Errorf("connections fetch: %w", err)
+	}
+
+	perBackendIn := map[string]uint64{}
+	perBackendOut := map[string]uint64{}
+	perBackendActive := map[string]uint64{}
+	cur := make(map[string]connState, len(snap.Conns))
+
+	p.mu.Lock()
+	for _, c := range snap.Conns {
+		backend := pickBackendID(c.Chains)
+		if backend == "" {
+			continue
+		}
+		var deltaUp, deltaDn uint64
+		if last, ok := p.lastConn[c.ID]; ok {
+			if c.Upload >= last.upload {
+				deltaUp = c.Upload - last.upload
+			}
+			if c.Download >= last.download {
+				deltaDn = c.Download - last.download
+			}
+		}
+		if deltaUp > 0 {
+			perBackendOut[backend] += deltaUp
+		}
+		if deltaDn > 0 {
+			perBackendIn[backend] += deltaDn
+		}
+		perBackendActive[backend]++
+		cur[c.ID] = connState{upload: c.Upload, download: c.Download, backend: backend}
+	}
+	p.lastConn = cur
+	p.mu.Unlock()
+
+	if len(perBackendActive) == 0 {
+		return nil
+	}
+
+	isEntry := p.cfg.NodeRole == "entry" || p.cfg.NodeRole == "whitelist_entry"
+	deltas := make([]nodeTrafficPayload, 0, len(perBackendActive))
+	for backend, active := range perBackendActive {
+		d := nodeTrafficPayload{
+			BytesIn:        perBackendIn[backend],
+			BytesOut:       perBackendOut[backend],
+			ActiveSessions: active,
+			BackendNodeID:  backend,
+		}
+		if isEntry {
+			d.EntryNodeID = string(p.cfg.NodeID)
+		}
+		deltas = append(deltas, d)
+	}
+
+	data, err := json.Marshal(deltas)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
 	}
 	if err := p.pub.Publish(ctx, p.cfg.Subject, nil, data); err != nil {
-		return fmt.Errorf("traffic-publisher: publish: %w", err)
+		return fmt.Errorf("publish: %w", err)
 	}
 	return nil
+}
+
+// pickBackendID parses sing-box clash chain entries.
+// Per-user backend outbounds are tagged "b-<client_uuid>-<backend_uuid>".
+// Returns the backend UUID, or "" if no backend chain found.
+func pickBackendID(chains []string) string {
+	for _, tag := range chains {
+		if !strings.HasPrefix(tag, "b-") {
+			continue
+		}
+		parts := strings.Split(tag, "-")
+		// b - <5 parts of client uuid> - <5 parts of backend uuid> = 11 parts
+		if len(parts) < 11 {
+			continue
+		}
+		return strings.Join(parts[6:11], "-")
+	}
+	return ""
 }

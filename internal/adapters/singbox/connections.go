@@ -17,8 +17,10 @@ type connectionsResponse struct {
 }
 
 type connection struct {
-	ID     string   `json:"id"`
-	Chains []string `json:"chains"`
+	ID       string   `json:"id"`
+	Chains   []string `json:"chains"`
+	Upload   uint64   `json:"upload"`
+	Download uint64   `json:"download"`
 }
 
 func (c *Client) Connections(ctx context.Context) (ports.SingBoxConnections, error) {
@@ -43,6 +45,7 @@ func (c *Client) Connections(ctx context.Context) (ports.SingBoxConnections, err
 	out := ports.SingBoxConnections{
 		Total:       uint64(len(dto.Connections)),
 		PerOutbound: map[string]uint64{},
+		Conns:       make([]ports.SingBoxConn, 0, len(dto.Connections)),
 	}
 	for _, conn := range dto.Connections {
 		outbound := lastOutbound(conn.Chains)
@@ -50,6 +53,12 @@ func (c *Client) Connections(ctx context.Context) (ports.SingBoxConnections, err
 			outbound = "_unknown"
 		}
 		out.PerOutbound[outbound]++
+		out.Conns = append(out.Conns, ports.SingBoxConn{
+			ID:       conn.ID,
+			Chains:   append([]string{}, conn.Chains...),
+			Upload:   conn.Upload,
+			Download: conn.Download,
+		})
 	}
 	return out, nil
 }

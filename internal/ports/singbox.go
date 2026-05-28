@@ -9,6 +9,14 @@ type SingBoxConfig struct {
 type SingBoxConnections struct {
 	Total       uint64
 	PerOutbound map[string]uint64
+	Conns       []SingBoxConn
+}
+
+type SingBoxConn struct {
+	ID       string
+	Chains   []string
+	Upload   uint64
+	Download uint64
 }
 
 type SingBox interface {
