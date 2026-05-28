@@ -117,6 +117,7 @@ func collectActiveUsers(placements []domain.Placement) []vlessUser {
 		}
 		seen[p.ClientID] = true
 		out = append(out, vlessUser{
+			Name: string(p.ClientID),
 			UUID: string(p.ClientID),
 			Flow: flowForTransport(p.Transport),
 		})

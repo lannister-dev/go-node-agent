@@ -33,6 +33,7 @@ type inbound struct {
 }
 
 type vlessUser struct {
+	Name string `json:"name"`
 	UUID string `json:"uuid"`
 	Flow string `json:"flow,omitempty"`
 }
