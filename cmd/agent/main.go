@@ -311,7 +311,7 @@ func run() error {
 		return err
 	}
 
-	if bsRes.FullResyncRequired {
+	if bsRes.FullResyncRequired || cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
 		if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
 			log.Warn("snapshot request failed", "err", rerr)
 		}
