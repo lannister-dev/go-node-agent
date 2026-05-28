@@ -43,6 +43,8 @@ type outbound struct {
 	Tag        string     `json:"tag"`
 	Server     string     `json:"server,omitempty"`
 	ServerPort uint16     `json:"server_port,omitempty"`
+	UUID       string     `json:"uuid,omitempty"`
+	Flow       string     `json:"flow,omitempty"`
 	TLS        *tlsConfig `json:"tls,omitempty"`
 }
 

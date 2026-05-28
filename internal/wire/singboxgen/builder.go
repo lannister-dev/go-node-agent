@@ -24,7 +24,7 @@ func Build(state NodeState) ([]byte, error) {
 	cfg := singBoxConfig{
 		Log:       buildLog(state.Log),
 		Inbounds:  []inbound{buildInbound(state.Inbound, state.Placements)},
-		Outbounds: buildOutbounds(state.Backends),
+		Outbounds: buildOutbounds(state.Placements, state.Backends),
 		Route:     buildRoute(state.Placements, state.Backends),
 	}
 	if state.ClashAPI.Enabled {
@@ -146,25 +146,55 @@ func buildTLS(r RealitySpec) *tlsConfig {
 	}
 }
 
-func buildOutbounds(backends []BackendSpec) []outbound {
-	out := make([]outbound, 0, 2+len(backends))
+func buildOutbounds(placements []domain.Placement, backends []BackendSpec) []outbound {
+	out := make([]outbound, 0, 2+len(placements))
 	out = append(out,
 		outbound{Type: directOutboundTag, Tag: directOutboundTag},
 		outbound{Type: blockOutboundTag, Tag: blockOutboundTag},
 	)
-	sorted := append([]BackendSpec{}, backends...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	for _, b := range sorted {
-		o := outbound{
+	backendByID := map[domain.BackendID]BackendSpec{}
+	for _, b := range backends {
+		backendByID[b.ID] = b
+	}
+	type pair struct {
+		ClientID  domain.ClientID
+		BackendID domain.BackendID
+	}
+	seen := map[pair]bool{}
+	pairs := make([]pair, 0, len(placements))
+	for _, p := range placements {
+		if p.Desired != domain.DesiredActive {
+			continue
+		}
+		if _, ok := backendByID[p.BackendNodeID]; !ok {
+			continue
+		}
+		if p.ClientID == "" {
+			continue
+		}
+		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		pairs = append(pairs, k)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].BackendID != pairs[j].BackendID {
+			return pairs[i].BackendID < pairs[j].BackendID
+		}
+		return pairs[i].ClientID < pairs[j].ClientID
+	})
+	for _, p := range pairs {
+		b := backendByID[p.BackendID]
+		out = append(out, outbound{
 			Type:       vlessType,
-			Tag:        outboundTagFor(b.ID),
+			Tag:        perUserOutboundTagFor(p.ClientID, p.BackendID),
 			Server:     b.Address,
 			ServerPort: b.Port,
-		}
-		if b.Reality.Enabled {
-			o.TLS = buildTLS(b.Reality)
-		}
-		out = append(out, o)
+			UUID:       string(p.ClientID),
+			Flow:       "",
+		})
 	}
 	return out
 }
@@ -175,7 +205,12 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		backendByID[b.ID] = true
 	}
 
-	usersByBackend := map[domain.BackendID][]string{}
+	type pair struct {
+		ClientID  domain.ClientID
+		BackendID domain.BackendID
+	}
+	seen := map[pair]bool{}
+	pairs := make([]pair, 0, len(placements))
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive {
 			continue
@@ -183,23 +218,28 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		if !backendByID[p.BackendNodeID] {
 			continue
 		}
-		usersByBackend[p.BackendNodeID] = append(usersByBackend[p.BackendNodeID], string(p.ClientID))
+		if p.ClientID == "" {
+			continue
+		}
+		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		pairs = append(pairs, k)
 	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].BackendID != pairs[j].BackendID {
+			return pairs[i].BackendID < pairs[j].BackendID
+		}
+		return pairs[i].ClientID < pairs[j].ClientID
+	})
 
-	rules := make([]routeRule, 0, len(usersByBackend))
-	bids := make([]domain.BackendID, 0, len(usersByBackend))
-	for id := range usersByBackend {
-		bids = append(bids, id)
-	}
-	sort.Slice(bids, func(i, j int) bool { return bids[i] < bids[j] })
-
-	for _, id := range bids {
-		users := usersByBackend[id]
-		sort.Strings(users)
-		users = dedupSorted(users)
+	rules := make([]routeRule, 0, len(pairs))
+	for _, p := range pairs {
 		rules = append(rules, routeRule{
-			AuthUser: users,
-			Outbound: outboundTagFor(id),
+			AuthUser: []string{string(p.ClientID)},
+			Outbound: perUserOutboundTagFor(p.ClientID, p.BackendID),
 		})
 	}
 
@@ -216,6 +256,10 @@ func outboundTagFor(id domain.BackendID) string {
 
 func OutboundTagFor(id domain.BackendID) string {
 	return "backend-" + strings.ToLower(string(id))
+}
+
+func perUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
+	return "b-" + strings.ToLower(string(clientID)) + "-" + strings.ToLower(string(backendID))
 }
 
 func coalesce(values ...string) string {

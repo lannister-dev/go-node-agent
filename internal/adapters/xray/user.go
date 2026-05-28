@@ -56,7 +56,22 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 		return err
 	}
 	if c.mirrorTag != "" && c.mirrorTag != tag {
-		if err := c.addUserToTag(ctx, user.ClientID, c.mirrorTag, opTM); err != nil {
+		mirrorAccountTM := &xserial.TypedMessage{
+			Type:  typeVlessAccount,
+			Value: encodeVlessAccount(string(user.ClientID), ""),
+		}
+		mirrorOp := &cmd.AddUserOperation{
+			User: &xprotocol.User{
+				Email:   string(user.ClientID),
+				Level:   0,
+				Account: mirrorAccountTM,
+			},
+		}
+		mirrorOpTM, err := wrapTyped(typeAddUserOperation, mirrorOp)
+		if err != nil {
+			return fmt.Errorf("xray: wrap mirror add op: %w", err)
+		}
+		if err := c.addUserToTag(ctx, user.ClientID, c.mirrorTag, mirrorOpTM); err != nil {
 			return err
 		}
 	}

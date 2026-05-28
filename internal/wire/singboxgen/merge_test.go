@@ -113,7 +113,7 @@ func TestMergeBase_AppendsBackendOutbounds(t *testing.T) {
 	if tags[0] != "direct" || tags[1] != "block" {
 		t.Errorf("base outbounds reorder broken: %v", tags)
 	}
-	if tags[2] != "backend-latvia-01" || tags[3] != "backend-praha-02" {
+	if tags[2] != "b-uuid-b-latvia-01" || tags[3] != "b-uuid-a-praha-02" {
 		t.Errorf("dynamic outbounds not appended in sorted order: %v", tags)
 	}
 }
@@ -126,7 +126,7 @@ func TestMergeBase_PrependsDynamicRoutePrependsKeepsBaseRules(t *testing.T) {
 	if len(rules) != 3 {
 		t.Fatalf("rules: %d", len(rules))
 	}
-	if rules[0].(map[string]any)["outbound"] != "backend-latvia-01" {
+	if rules[0].(map[string]any)["outbound"] != "b-uuid-b-latvia-01" {
 		t.Errorf("first dynamic rule: %+v", rules[0])
 	}
 	last := rules[len(rules)-1].(map[string]any)
@@ -153,7 +153,7 @@ func TestMergeBase_BackendOutboundsAreplainVlessWithoutTLS(t *testing.T) {
 	for _, o := range outs {
 		m := o.(map[string]any)
 		tag, _ := m["tag"].(string)
-		if !strings.HasPrefix(tag, "backend-") {
+		if !strings.HasPrefix(tag, "b-") {
 			continue
 		}
 		if _, has := m["tls"]; has {
@@ -192,7 +192,7 @@ func TestMergeBase_RemovesStalePlacements(t *testing.T) {
 	}
 	rules := got["route"].(map[string]any)["rules"].([]any)
 	for _, r := range rules {
-		if out, ok := r.(map[string]any)["outbound"].(string); ok && out == "backend-latvia-01" {
+		if out, ok := r.(map[string]any)["outbound"].(string); ok && out == "b-uuid-b-latvia-01" {
 			t.Error("stale rule for removed placement not cleaned")
 		}
 	}
@@ -203,7 +203,7 @@ func TestMergeBase_EmptyBaseUsesBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "backend-praha-02") {
+	if !strings.Contains(string(out), "b-uuid-a-praha-02") {
 		t.Error("nil base should fall through to Build()")
 	}
 }

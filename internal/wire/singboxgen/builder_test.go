@@ -89,7 +89,7 @@ func TestBuild_OutboundsIncludeDirectBlockAndBackends(t *testing.T) {
 	for _, o := range outs {
 		tags = append(tags, o.(map[string]any)["tag"].(string))
 	}
-	want := []string{"direct", "block", "backend-latvia-01", "backend-praha-02"}
+	want := []string{"direct", "block", "b-uuid-b-latvia-01", "b-uuid-a-praha-02"}
 	if len(tags) != len(want) {
 		t.Fatalf("outbounds: got %v, want %v", tags, want)
 	}
@@ -109,8 +109,8 @@ func TestBuild_RouteRulesGroupActiveUsersByBackend(t *testing.T) {
 		t.Fatalf("rules: %d", len(rules))
 	}
 	want := map[string][]string{
-		"backend-latvia-01": {"uuid-b"},
-		"backend-praha-02":  {"uuid-a"},
+		"b-uuid-b-latvia-01": {"uuid-b"},
+		"b-uuid-a-praha-02":  {"uuid-a"},
 	}
 	for _, r := range rules {
 		m := r.(map[string]any)
@@ -306,8 +306,9 @@ func TestBuild_OutboundTagInvariant(t *testing.T) {
 	got := parseConfig(t, data)
 
 	wantTags := map[string]domain.BackendID{}
-	for _, id := range ids {
-		wantTags[OutboundTagFor(id)] = id
+	for i, id := range ids {
+		clientID := domain.ClientID(fmt.Sprintf("uuid-%d", i))
+		wantTags[perUserOutboundTagFor(clientID, id)] = id
 	}
 
 	outs := got["outbounds"].([]any)
@@ -319,7 +320,7 @@ func TestBuild_OutboundTagInvariant(t *testing.T) {
 		}
 		tag := m["tag"].(string)
 		if _, ok := wantTags[tag]; !ok {
-			t.Errorf("outbound tag %q does not match OutboundTagFor() for any backend; "+
+			t.Errorf("outbound tag %q does not match perUserOutboundTagFor() for any placement; "+
 				"drain will not find this tag in /connections", tag)
 		}
 		seenOutbound[tag] = true
@@ -334,7 +335,7 @@ func TestBuild_OutboundTagInvariant(t *testing.T) {
 	for _, r := range rules {
 		tag := r.(map[string]any)["outbound"].(string)
 		if _, ok := wantTags[tag]; !ok {
-			t.Errorf("route rule outbound %q does not match OutboundTagFor() for any backend", tag)
+			t.Errorf("route rule outbound %q does not match perUserOutboundTagFor() for any placement", tag)
 		}
 	}
 }

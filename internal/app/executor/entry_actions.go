@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
@@ -129,8 +130,14 @@ func (a *EntryActions) OldBackendConnections(ctx context.Context, plan domain.Fl
 	if err != nil {
 		return 0, err
 	}
-	tag := singboxgen.OutboundTagFor(plan.OldBackend)
-	return conns.PerOutbound[tag], nil
+	suffix := "-" + strings.ToLower(string(plan.OldBackend))
+	var total uint64
+	for tag, n := range conns.PerOutbound {
+		if strings.HasPrefix(tag, "b-") && strings.HasSuffix(tag, suffix) {
+			total += n
+		}
+	}
+	return total, nil
 }
 
 func (a *EntryActions) OldBackendReachable(ctx context.Context, plan domain.FlipPlan) bool {

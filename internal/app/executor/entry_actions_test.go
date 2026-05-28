@@ -222,7 +222,7 @@ func TestSwapRoute_PersistsAndReloads(t *testing.T) {
 		t.Fatalf("rules: %d", len(rules))
 	}
 	r := rules[0].(map[string]any)
-	if r["outbound"] != "backend-latvia-01" {
+	if r["outbound"] != "b-uuid-a-latvia-01" {
 		t.Errorf("route after swap: %v", r)
 	}
 }
@@ -274,8 +274,9 @@ func TestOldBackendConnections_CountsByTag(t *testing.T) {
 		connections: ports.SingBoxConnections{
 			Total: 7,
 			PerOutbound: map[string]uint64{
-				"backend-praha-02":  5,
-				"backend-latvia-01": 2,
+				"b-uuid-a-praha-02":  3,
+				"b-uuid-b-praha-02":  2,
+				"b-uuid-c-latvia-01": 2,
 			},
 		},
 	}

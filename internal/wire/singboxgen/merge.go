@@ -10,7 +10,11 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 )
 
-const dynamicTagPrefix = "backend-"
+const dynamicTagPrefix = "b-"
+
+func isDynamicTag(tag string) bool {
+	return strings.HasPrefix(tag, dynamicTagPrefix)
+}
 
 func MergeBase(base []byte, state NodeState) ([]byte, error) {
 	if len(base) == 0 {
@@ -85,31 +89,55 @@ func mergeOutbounds(root map[string]any, state NodeState) {
 			continue
 		}
 		tag, _ := om["tag"].(string)
-		if strings.HasPrefix(tag, dynamicTagPrefix) {
+		if isDynamicTag(tag) {
 			continue
 		}
 		filtered = append(filtered, o)
 	}
 
-	sorted := append([]BackendSpec{}, state.Backends...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	for _, b := range sorted {
-		entry := map[string]any{
+	backendByID := map[domain.BackendID]BackendSpec{}
+	for _, b := range state.Backends {
+		backendByID[b.ID] = b
+	}
+	type pair struct {
+		ClientID  domain.ClientID
+		BackendID domain.BackendID
+	}
+	seen := map[pair]bool{}
+	pairs := make([]pair, 0, len(state.Placements))
+	for _, p := range state.Placements {
+		if p.Desired != domain.DesiredActive {
+			continue
+		}
+		if _, ok := backendByID[p.BackendNodeID]; !ok {
+			continue
+		}
+		if p.ClientID == "" {
+			continue
+		}
+		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		pairs = append(pairs, k)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].BackendID != pairs[j].BackendID {
+			return pairs[i].BackendID < pairs[j].BackendID
+		}
+		return pairs[i].ClientID < pairs[j].ClientID
+	})
+	for _, p := range pairs {
+		b := backendByID[p.BackendID]
+		filtered = append(filtered, map[string]any{
 			"type":        vlessType,
-			"tag":         outboundTagFor(b.ID),
+			"tag":         perUserOutboundTagFor(p.ClientID, p.BackendID),
 			"server":      b.Address,
 			"server_port": float64(b.Port),
-		}
-		if b.Reality.Enabled {
-			entry["tls"] = map[string]any{
-				"enabled":     true,
-				"server_name": b.Reality.ServerName,
-				"reality": map[string]any{
-					"enabled": true,
-				},
-			}
-		}
-		filtered = append(filtered, entry)
+			"uuid":        string(p.ClientID),
+			"flow":        "",
+		})
 	}
 	root["outbounds"] = filtered
 }
@@ -128,7 +156,7 @@ func mergeRoute(root map[string]any, state NodeState) {
 			kept = append(kept, r)
 			continue
 		}
-		if outbound, ok := rm["outbound"].(string); ok && strings.HasPrefix(outbound, dynamicTagPrefix) {
+		if outbound, ok := rm["outbound"].(string); ok && isDynamicTag(outbound) {
 			continue
 		}
 		kept = append(kept, r)
@@ -150,7 +178,12 @@ func buildDynamicRouteRules(state NodeState) []map[string]any {
 		backendByID[b.ID] = true
 	}
 
-	usersByBackend := map[domain.BackendID][]string{}
+	type pair struct {
+		ClientID  domain.ClientID
+		BackendID domain.BackendID
+	}
+	seen := map[pair]bool{}
+	pairs := make([]pair, 0, len(state.Placements))
 	for _, p := range state.Placements {
 		if p.Desired != domain.DesiredActive {
 			continue
@@ -158,27 +191,28 @@ func buildDynamicRouteRules(state NodeState) []map[string]any {
 		if !backendByID[p.BackendNodeID] {
 			continue
 		}
-		usersByBackend[p.BackendNodeID] = append(usersByBackend[p.BackendNodeID], string(p.ClientID))
-	}
-
-	bids := make([]domain.BackendID, 0, len(usersByBackend))
-	for id := range usersByBackend {
-		bids = append(bids, id)
-	}
-	sort.Slice(bids, func(i, j int) bool { return bids[i] < bids[j] })
-
-	rules := make([]map[string]any, 0, len(bids))
-	for _, id := range bids {
-		users := usersByBackend[id]
-		sort.Strings(users)
-		users = dedupSorted(users)
-		userVals := make([]any, len(users))
-		for i, u := range users {
-			userVals[i] = u
+		if p.ClientID == "" {
+			continue
 		}
+		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		pairs = append(pairs, k)
+	}
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].BackendID != pairs[j].BackendID {
+			return pairs[i].BackendID < pairs[j].BackendID
+		}
+		return pairs[i].ClientID < pairs[j].ClientID
+	})
+
+	rules := make([]map[string]any, 0, len(pairs))
+	for _, p := range pairs {
 		rules = append(rules, map[string]any{
-			"auth_user": userVals,
-			"outbound":  outboundTagFor(id),
+			"auth_user": []any{string(p.ClientID)},
+			"outbound":  perUserOutboundTagFor(p.ClientID, p.BackendID),
 		})
 	}
 	return rules

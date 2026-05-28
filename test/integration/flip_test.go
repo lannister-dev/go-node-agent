@@ -70,7 +70,7 @@ func newFakeSingBoxAPI(t *testing.T, initialConns uint64) *fakeSingBoxAPI {
 				for i := range remaining {
 					connList = append(connList, map[string]any{
 						"id":     "conn-" + string(rune('a'+i)),
-						"chains": []string{"in", "backend-praha-02"},
+						"chains": []string{"in", "b-uuid-a-praha-02"},
 					})
 				}
 				resp["connections"] = connList
@@ -283,10 +283,10 @@ func TestFullFlipFlow_EndToEnd(t *testing.T) {
 	if !hasUserUUID(first, "uuid-a") {
 		t.Fatal("uuid-a should be in inbound users after first apply")
 	}
-	if !hasOutbound(first, "backend-praha-02") {
+	if !hasOutbound(first, "b-uuid-a-praha-02") {
 		t.Fatal("praha-02 outbound should be present")
 	}
-	if !hasRoute(first, "uuid-a", "backend-praha-02") {
+	if !hasRoute(first, "uuid-a", "b-uuid-a-praha-02") {
 		t.Fatal("user should be routed to praha-02")
 	}
 	if !hasRealityKey(first, "OPERATOR-PROVIDED-REALITY-KEY") {
@@ -336,10 +336,10 @@ func TestFullFlipFlow_EndToEnd(t *testing.T) {
 	if !hasUserUUID(final, "uuid-a") {
 		t.Error("uuid-a should still be present after flip")
 	}
-	if !hasRoute(final, "uuid-a", "backend-latvia-01") {
+	if !hasRoute(final, "uuid-a", "b-uuid-a-latvia-01") {
 		t.Errorf("user should be routed to latvia-01 after flip")
 	}
-	if hasRoute(final, "uuid-a", "backend-praha-02") {
+	if hasRoute(final, "uuid-a", "b-uuid-a-praha-02") {
 		t.Errorf("old praha-02 route should be gone")
 	}
 	if !hasRealityKey(final, "OPERATOR-PROVIDED-REALITY-KEY") {
