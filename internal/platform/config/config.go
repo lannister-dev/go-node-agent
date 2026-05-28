@@ -23,11 +23,12 @@ type Config struct {
 	NATSCAPath   string
 	NATSName     string
 
-	NATSCommandPrefix    string
-	NATSResultPrefix     string
-	NATSSnapshotPrefix   string
-	NATSHeartbeatPrefix  string
-	NATSSyncReportPrefix string
+	NATSCommandPrefix       string
+	NATSResultPrefix        string
+	NATSSnapshotPrefix      string
+	NATSHeartbeatPrefix     string
+	NATSSyncReportPrefix    string
+	NATSNodesTrafficSubject string
 
 	SingBoxAPIURL     string
 	SingBoxConfigPath string
@@ -76,29 +77,30 @@ type Config struct {
 func Load() (Config, error) {
 	var err error
 	cfg := Config{
-		NodeID:               env("NODE_ID", ""),
-		BootstrapToken:       env("BOOTSTRAP_TOKEN", ""),
-		NodeKey:              env("NODE_KEY", ""),
-		NodeRole:             env("NODE_ROLE", ""),
-		ControlAPIURL:        env("CONTROL_API_URL", ""),
-		NATSURL:              env("NATS_URL", "nats://nats.nats.svc.cluster.local:4222"),
-		NATSCertPath:         env("NATS_CERT_PATH", ""),
-		NATSKeyPath:          env("NATS_KEY_PATH", ""),
-		NATSCAPath:           env("NATS_CA_PATH", ""),
-		NATSName:             env("NATS_NAME", "go-node-agent"),
-		NATSCommandPrefix:    env("NATS_COMMAND_PREFIX", "agent.placements"),
-		NATSResultPrefix:     env("NATS_RESULT_PREFIX", "agent.placement_results"),
-		NATSSnapshotPrefix:   env("NATS_SNAPSHOT_PREFIX", "agent.snapshots"),
-		NATSHeartbeatPrefix:  env("NATS_HEARTBEAT_PREFIX", "agent.heartbeats"),
-		NATSSyncReportPrefix: env("NATS_SYNC_REPORT_PREFIX", "agent.sync_reports"),
-		SingBoxAPIURL:        env("SINGBOX_API_URL", "http://127.0.0.1:9090"),
-		SingBoxConfigPath:    env("SINGBOX_CONFIG_PATH", "/var/lib/sing-box-shared/sing-box/config.json"),
-		XrayGRPCAddr:         env("XRAY_GRPC_ADDR", "127.0.0.1:10085"),
-		HAProxySocket:        env("HAPROXY_SOCKET", "/var/run/haproxy/admin.sock"),
-		StorePath:            env("STORE_PATH", "/var/lib/go-node-agent"),
-		HTTPAddr:             env("HTTP_ADDR", ":8080"),
-		LogLevel:             env("LOG_LEVEL", "info"),
-		LogFormat:            env("LOG_FORMAT", "json"),
+		NodeID:                  env("NODE_ID", ""),
+		BootstrapToken:          env("BOOTSTRAP_TOKEN", ""),
+		NodeKey:                 env("NODE_KEY", ""),
+		NodeRole:                env("NODE_ROLE", ""),
+		ControlAPIURL:           env("CONTROL_API_URL", ""),
+		NATSURL:                 env("NATS_URL", "nats://nats.nats.svc.cluster.local:4222"),
+		NATSCertPath:            env("NATS_CERT_PATH", ""),
+		NATSKeyPath:             env("NATS_KEY_PATH", ""),
+		NATSCAPath:              env("NATS_CA_PATH", ""),
+		NATSName:                env("NATS_NAME", "go-node-agent"),
+		NATSCommandPrefix:       env("NATS_COMMAND_PREFIX", "agent.placements"),
+		NATSResultPrefix:        env("NATS_RESULT_PREFIX", "agent.placement_results"),
+		NATSSnapshotPrefix:      env("NATS_SNAPSHOT_PREFIX", "agent.snapshots"),
+		NATSHeartbeatPrefix:     env("NATS_HEARTBEAT_PREFIX", "agent.heartbeats"),
+		NATSSyncReportPrefix:    env("NATS_SYNC_REPORT_PREFIX", "agent.sync_reports"),
+		NATSNodesTrafficSubject: env("NATS_NODES_TRAFFIC_SUBJECT", "nodes.traffic"),
+		SingBoxAPIURL:           env("SINGBOX_API_URL", "http://127.0.0.1:9090"),
+		SingBoxConfigPath:       env("SINGBOX_CONFIG_PATH", "/var/lib/sing-box-shared/sing-box/config.json"),
+		XrayGRPCAddr:            env("XRAY_GRPC_ADDR", "127.0.0.1:10085"),
+		HAProxySocket:           env("HAPROXY_SOCKET", "/var/run/haproxy/admin.sock"),
+		StorePath:               env("STORE_PATH", "/var/lib/go-node-agent"),
+		HTTPAddr:                env("HTTP_ADDR", ":8080"),
+		LogLevel:                env("LOG_LEVEL", "info"),
+		LogFormat:               env("LOG_FORMAT", "json"),
 
 		SingBoxInboundTag:        env("SINGBOX_INBOUND_TAG", "vless-in"),
 		SingBoxListenAddress:     env("SINGBOX_LISTEN_ADDRESS", "::"),

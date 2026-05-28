@@ -32,6 +32,7 @@ env:
   natsSnapshotPrefix: dev.agent.snapshots
   natsHeartbeatPrefix: dev.agent.heartbeats
   natsSyncReportPrefix: dev.agent.sync_reports
+  natsNodesTrafficSubject: dev.nodes.traffic
 
 executor:
   enabled: true

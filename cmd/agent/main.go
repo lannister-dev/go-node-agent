@@ -351,7 +351,7 @@ func run() error {
 		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
 			NodeID:   nodeID,
 			NodeRole: cfg.NodeRole,
-			Subject:  "nodes.traffic",
+			Subject:  cfg.NATSNodesTrafficSubject,
 			Interval: cfg.TrafficInterval,
 		}, natsTr, trafficReporter, log)
 		if err != nil {

@@ -146,6 +146,8 @@ spec:
               value: {{ .Values.env.natsHeartbeatPrefix | quote }}
             - name: NATS_SYNC_REPORT_PREFIX
               value: {{ .Values.env.natsSyncReportPrefix | quote }}
+            - name: NATS_NODES_TRAFFIC_SUBJECT
+              value: {{ .Values.env.natsNodesTrafficSubject | default "nodes.traffic" | quote }}
             - name: STORE_PATH
               value: /var/lib/go-node-agent
             - name: HAPROXY_SOCKET
