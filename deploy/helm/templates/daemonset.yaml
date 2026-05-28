@@ -186,6 +186,10 @@ spec:
             - name: XRAY_INBOUND_TAG_TCP
               value: {{ . | quote }}
             {{- end }}
+            {{- with .Values.executor.xray.inboundTagWgInternal }}
+            - name: XRAY_INBOUND_TAG_WG_INTERNAL
+              value: {{ . | quote }}
+            {{- end }}
             {{- if .Values.wg.enabled }}
             - name: WG_ENABLED
               value: "true"

@@ -49,22 +49,23 @@ type Config struct {
 	SnapshotInterval  time.Duration
 	ReconcileInterval time.Duration
 
-	EnableExecutor          bool
-	SingBoxInboundTag       string
-	SingBoxListenAddress    string
-	SingBoxListenPort       uint16
-	SingBoxLogLevel         string
-	BackendDefaultPort      uint16
-	BackendDefaultTransport string
-	XrayInboundTag          string
-	XrayInboundTagWS        string
-	XrayInboundTagReality   string
-	XrayInboundTagXHTTP     string
-	XrayInboundTagTCP       string
-	BandwidthNIC            string
-	BandwidthCapacityMbps   uint16
-	OTLPEndpoint            string
-	OTLPInsecure            bool
+	EnableExecutor           bool
+	SingBoxInboundTag        string
+	SingBoxListenAddress     string
+	SingBoxListenPort        uint16
+	SingBoxLogLevel          string
+	BackendDefaultPort       uint16
+	BackendDefaultTransport  string
+	XrayInboundTag           string
+	XrayInboundTagWS         string
+	XrayInboundTagReality    string
+	XrayInboundTagXHTTP      string
+	XrayInboundTagTCP        string
+	XrayInboundTagWgInternal string
+	BandwidthNIC             string
+	BandwidthCapacityMbps    uint16
+	OTLPEndpoint             string
+	OTLPInsecure             bool
 
 	WgEnabled    bool
 	WgInterface  string
@@ -99,17 +100,18 @@ func Load() (Config, error) {
 		LogLevel:             env("LOG_LEVEL", "info"),
 		LogFormat:            env("LOG_FORMAT", "json"),
 
-		SingBoxInboundTag:       env("SINGBOX_INBOUND_TAG", "vless-in"),
-		SingBoxListenAddress:    env("SINGBOX_LISTEN_ADDRESS", "::"),
-		SingBoxLogLevel:         env("SINGBOX_LOG_LEVEL", "info"),
-		BackendDefaultTransport: env("BACKEND_DEFAULT_TRANSPORT", "ws"),
-		XrayInboundTag:          env("XRAY_INBOUND_TAG", "vless-in"),
-		XrayInboundTagWS:        env("XRAY_INBOUND_TAG_WS", ""),
-		XrayInboundTagReality:   env("XRAY_INBOUND_TAG_REALITY", ""),
-		XrayInboundTagXHTTP:     env("XRAY_INBOUND_TAG_XHTTP", ""),
-		XrayInboundTagTCP:       env("XRAY_INBOUND_TAG_TCP", ""),
-		BandwidthNIC:            env("BANDWIDTH_NIC", ""),
-		OTLPEndpoint:            env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
+		SingBoxInboundTag:        env("SINGBOX_INBOUND_TAG", "vless-in"),
+		SingBoxListenAddress:     env("SINGBOX_LISTEN_ADDRESS", "::"),
+		SingBoxLogLevel:          env("SINGBOX_LOG_LEVEL", "info"),
+		BackendDefaultTransport:  env("BACKEND_DEFAULT_TRANSPORT", "ws"),
+		XrayInboundTag:           env("XRAY_INBOUND_TAG", "vless-in"),
+		XrayInboundTagWS:         env("XRAY_INBOUND_TAG_WS", ""),
+		XrayInboundTagReality:    env("XRAY_INBOUND_TAG_REALITY", ""),
+		XrayInboundTagXHTTP:      env("XRAY_INBOUND_TAG_XHTTP", ""),
+		XrayInboundTagTCP:        env("XRAY_INBOUND_TAG_TCP", ""),
+		XrayInboundTagWgInternal: env("XRAY_INBOUND_TAG_WG_INTERNAL", ""),
+		BandwidthNIC:             env("BANDWIDTH_NIC", ""),
+		OTLPEndpoint:             env("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}
 	cfg.OTLPInsecure = envBool("OTEL_EXPORTER_OTLP_INSECURE", true)
 

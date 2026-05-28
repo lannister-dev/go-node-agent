@@ -516,6 +516,7 @@ func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger)
 		Address:           cfg.XrayGRPCAddr,
 		InboundTag:        cfg.XrayInboundTag,
 		InboundTagByXport: tagByXport,
+		MirrorTag:         cfg.XrayInboundTagWgInternal,
 		Timeout:           3 * time.Second,
 		Logger:            log,
 	})

@@ -52,21 +52,33 @@ func (c *Client) AddUser(ctx context.Context, user ports.XrayUser) error {
 	if tag == "" {
 		return fmt.Errorf("xray: no inbound tag mapped for transport %q", user.Transport)
 	}
+	if err := c.addUserToTag(ctx, user.ClientID, tag, opTM); err != nil {
+		return err
+	}
+	if c.mirrorTag != "" && c.mirrorTag != tag {
+		if err := c.addUserToTag(ctx, user.ClientID, c.mirrorTag, opTM); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Client) addUserToTag(ctx context.Context, clientID domain.ClientID, tag string, opTM *xserial.TypedMessage) error {
 	if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
 		Tag:       tag,
 		Operation: opTM,
 	}); err != nil {
 		if !isAlreadyExistsError(err) {
-			return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", user.ClientID, tag, err)
+			return fmt.Errorf("xray: AlterInbound add %s tag=%s: %w", clientID, tag, err)
 		}
-		if rmErr := c.RemoveUser(ctx, user.ClientID); rmErr != nil {
-			return fmt.Errorf("xray: re-add %s tag=%s: cleanup failed: %w", user.ClientID, tag, errors.Join(err, rmErr))
+		if rmErr := c.RemoveUser(ctx, clientID); rmErr != nil {
+			return fmt.Errorf("xray: re-add %s tag=%s: cleanup failed: %w", clientID, tag, errors.Join(err, rmErr))
 		}
 		if _, err := c.handler.AlterInbound(ctx, &cmd.AlterInboundRequest{
 			Tag:       tag,
 			Operation: opTM,
 		}); err != nil {
-			return fmt.Errorf("xray: AlterInbound re-add %s tag=%s: %w", user.ClientID, tag, err)
+			return fmt.Errorf("xray: AlterInbound re-add %s tag=%s: %w", clientID, tag, err)
 		}
 	}
 	return nil
@@ -112,18 +124,19 @@ func (c *Client) RemoveUser(ctx context.Context, clientID domain.ClientID) error
 
 func (c *Client) allKnownTags() []string {
 	seen := map[string]bool{}
-	out := make([]string, 0, len(c.tagByXport)+1)
-	if c.inboundTag != "" {
-		seen[c.inboundTag] = true
-		out = append(out, c.inboundTag)
-	}
-	for _, tag := range c.tagByXport {
+	out := make([]string, 0, len(c.tagByXport)+2)
+	add := func(tag string) {
 		if tag == "" || seen[tag] {
-			continue
+			return
 		}
 		seen[tag] = true
 		out = append(out, tag)
 	}
+	add(c.inboundTag)
+	for _, tag := range c.tagByXport {
+		add(tag)
+	}
+	add(c.mirrorTag)
 	return out
 }
 

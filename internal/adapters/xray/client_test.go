@@ -60,7 +60,7 @@ func (f *fakeHandlerServer) snapshot() []*cmd.AlterInboundRequest {
 	return out
 }
 
-func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
+func startFakeServerWithMirror(t *testing.T, fake *fakeHandlerServer, mirror string) *Client {
 	t.Helper()
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
@@ -82,6 +82,7 @@ func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
 	c, err := New(Options{
 		Address:    "passthrough:///bufnet",
 		InboundTag: "vless-in",
+		MirrorTag:  mirror,
 		Timeout:    2 * time.Second,
 		DialOptions: []grpc.DialOption{
 			grpc.WithContextDialer(dialer),
@@ -93,6 +94,10 @@ func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	return c
+}
+
+func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
+	return startFakeServerWithMirror(t, fake, "")
 }
 
 type decodedAccount struct {
@@ -140,6 +145,30 @@ func decodeVlessAccount(t *testing.T, raw []byte) decodedAccount {
 		}
 	}
 	return acc
+}
+
+func TestAddUser_MirroredToWgInternal(t *testing.T) {
+	fake := &fakeHandlerServer{}
+	c := startFakeServerWithMirror(t, fake, "vless-wg-internal")
+	if err := c.AddUser(t.Context(), ports.XrayUser{
+		ClientID:  "01234567-89ab-cdef-0123-456789abcdef",
+		Transport: domain.TransportReality,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := fake.snapshot()
+	tags := map[string]int{}
+	for _, r := range reqs {
+		if r.GetOperation().GetType() == typeAddUserOperation {
+			tags[r.GetTag()]++
+		}
+	}
+	if tags["vless-in"] != 1 {
+		t.Errorf("expected 1 add to primary, got %d", tags["vless-in"])
+	}
+	if tags["vless-wg-internal"] != 1 {
+		t.Errorf("expected 1 add to mirror (vless-wg-internal), got %d", tags["vless-wg-internal"])
+	}
 }
 
 func TestAddUser_VLESS_WS(t *testing.T) {
