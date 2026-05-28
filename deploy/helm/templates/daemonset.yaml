@@ -83,7 +83,7 @@ spec:
             {{- toYaml $sc | nindent 12 }}
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ .Values.env.httpPort | default 8080 }}
               protocol: TCP
           env:
             - name: NODE_NAME
@@ -129,7 +129,7 @@ spec:
             - name: LOG_FORMAT
               value: {{ .Values.env.logFormat | quote }}
             - name: HTTP_ADDR
-              value: ":8080"
+              value: {{ .Values.env.httpAddr | default ":8080" | quote }}
             - name: HEARTBEAT_INTERVAL
               value: {{ .Values.env.heartbeatInterval | quote }}
             - name: DRAIN_TIMEOUT
