@@ -10,10 +10,13 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 )
 
-const dynamicTagPrefix = "b-"
+const (
+	dynamicTagPrefix       = "b-"
+	legacyDynamicTagPrefix = "backend-"
+)
 
 func isDynamicTag(tag string) bool {
-	return strings.HasPrefix(tag, dynamicTagPrefix)
+	return strings.HasPrefix(tag, dynamicTagPrefix) || strings.HasPrefix(tag, legacyDynamicTagPrefix)
 }
 
 func MergeBase(base []byte, state NodeState) ([]byte, error) {
