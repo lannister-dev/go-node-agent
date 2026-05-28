@@ -36,7 +36,7 @@ env:
   controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
   natsURL: nats://nats.nats.svc.cluster.local:4222
   nodeRole: backend
-  httpAddr: "127.0.0.1:9095"
+  httpAddr: ":9095"
   httpPort: 9095
   logLevel: debug
   logFormat: json
