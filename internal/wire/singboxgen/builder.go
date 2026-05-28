@@ -198,7 +198,7 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		sort.Strings(users)
 		users = dedupSorted(users)
 		rules = append(rules, routeRule{
-			User:     users,
+			AuthUser: users,
 			Outbound: outboundTagFor(id),
 		})
 	}

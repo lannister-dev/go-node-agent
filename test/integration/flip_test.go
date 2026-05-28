@@ -414,7 +414,7 @@ func hasRoute(cfg map[string]any, userUUID, outbound string) bool {
 	if !ok {
 		return false
 	}
-	users, ok := rule["user"].([]any)
+	users, ok := rule["auth_user"].([]any)
 	if !ok {
 		return false
 	}

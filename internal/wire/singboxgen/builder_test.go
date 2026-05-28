@@ -115,7 +115,7 @@ func TestBuild_RouteRulesGroupActiveUsersByBackend(t *testing.T) {
 	for _, r := range rules {
 		m := r.(map[string]any)
 		tag := m["outbound"].(string)
-		usersAny := m["user"].([]any)
+		usersAny := m["auth_user"].([]any)
 		gotUsers := make([]string, len(usersAny))
 		for i, u := range usersAny {
 			gotUsers[i] = u.(string)

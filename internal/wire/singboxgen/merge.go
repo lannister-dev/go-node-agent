@@ -47,7 +47,7 @@ func mergeInbounds(root map[string]any, state NodeState) error {
 	users := collectActiveUsers(state.Placements)
 	jsonUsers := make([]any, 0, len(users))
 	for _, u := range users {
-		entry := map[string]any{"uuid": u.UUID}
+		entry := map[string]any{"name": u.UUID, "uuid": u.UUID}
 		if u.Flow != "" {
 			entry["flow"] = u.Flow
 		}
@@ -177,8 +177,8 @@ func buildDynamicRouteRules(state NodeState) []map[string]any {
 			userVals[i] = u
 		}
 		rules = append(rules, map[string]any{
-			"user":     userVals,
-			"outbound": outboundTagFor(id),
+			"auth_user": userVals,
+			"outbound":  outboundTagFor(id),
 		})
 	}
 	return rules

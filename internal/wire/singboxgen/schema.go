@@ -71,6 +71,6 @@ type routeConfig struct {
 }
 
 type routeRule struct {
-	User     []string `json:"user,omitempty"`
+	AuthUser []string `json:"auth_user,omitempty"`
 	Outbound string   `json:"outbound"`
 }
