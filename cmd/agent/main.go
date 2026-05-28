@@ -363,6 +363,19 @@ func run() error {
 		}
 	}
 
+	var backendTrafficPub *traffic.BackendPublisher
+	if backendStack != nil && backendStack.xray != nil {
+		backendTrafficPub, err = traffic.NewBackendPublisher(traffic.BackendPublisherConfig{
+			NodeID:             nodeID,
+			NodeTrafficSubject: cfg.NATSNodesTrafficSubject,
+			UserTrafficSubject: cfg.NATSUsersTrafficSubject,
+			Interval:           cfg.TrafficInterval,
+		}, natsTr, backendStack.xray, log)
+		if err != nil {
+			return err
+		}
+	}
+
 	var trafficSrc server.TrafficSource
 	if trafficReporter != nil {
 		trafficSrc = trafficReporter
@@ -403,6 +416,9 @@ func run() error {
 	}
 	if trafficPub != nil {
 		g.Go(func() error { return trafficPub.Run(gctx) })
+	}
+	if backendTrafficPub != nil {
+		g.Go(func() error { return backendTrafficPub.Run(gctx) })
 	}
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })

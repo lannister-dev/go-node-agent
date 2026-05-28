@@ -29,6 +29,7 @@ type Config struct {
 	NATSHeartbeatPrefix     string
 	NATSSyncReportPrefix    string
 	NATSNodesTrafficSubject string
+	NATSUsersTrafficSubject string
 
 	SingBoxAPIURL     string
 	SingBoxConfigPath string
@@ -93,6 +94,7 @@ func Load() (Config, error) {
 		NATSHeartbeatPrefix:     env("NATS_HEARTBEAT_PREFIX", "agent.heartbeats"),
 		NATSSyncReportPrefix:    env("NATS_SYNC_REPORT_PREFIX", "agent.sync_reports"),
 		NATSNodesTrafficSubject: env("NATS_NODES_TRAFFIC_SUBJECT", "nodes.traffic"),
+		NATSUsersTrafficSubject: env("NATS_USERS_TRAFFIC_SUBJECT", "users.traffic"),
 		SingBoxAPIURL:           env("SINGBOX_API_URL", "http://127.0.0.1:9090"),
 		SingBoxConfigPath:       env("SINGBOX_CONFIG_PATH", "/var/lib/sing-box-shared/sing-box/config.json"),
 		XrayGRPCAddr:            env("XRAY_GRPC_ADDR", "127.0.0.1:10085"),
