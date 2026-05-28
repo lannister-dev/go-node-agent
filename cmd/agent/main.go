@@ -357,7 +357,7 @@ func run() error {
 			NodeRole: cfg.NodeRole,
 			Subject:  cfg.NATSNodesTrafficSubject,
 			Interval: cfg.TrafficInterval,
-		}, natsTr, trafficReporter, connsSrc, log)
+		}, natsTr, connsSrc, log)
 		if err != nil {
 			return err
 		}

@@ -250,8 +250,25 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 	}
 }
 
+// PerUserOutboundTagPrefix marks per-user backend outbounds rendered by the entry agent.
+// Traffic publisher and drain reader rely on this prefix to attribute connections to a backend.
+const PerUserOutboundTagPrefix = "b-"
+
+// ParsePerUserOutboundTag extracts (clientID, backendID) from a per-user outbound tag.
+// Returns ok=false if tag is not in the expected b-<client_uuid>-<backend_uuid> format.
+func ParsePerUserOutboundTag(tag string) (clientID, backendID string, ok bool) {
+	if !strings.HasPrefix(tag, PerUserOutboundTagPrefix) {
+		return "", "", false
+	}
+	parts := strings.Split(tag, "-")
+	if len(parts) != 11 {
+		return "", "", false
+	}
+	return strings.Join(parts[1:6], "-"), strings.Join(parts[6:11], "-"), true
+}
+
 func perUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
-	return "b-" + strings.ToLower(string(clientID)) + "-" + strings.ToLower(string(backendID))
+	return PerUserOutboundTagPrefix + strings.ToLower(string(clientID)) + "-" + strings.ToLower(string(backendID))
 }
 
 func coalesce(values ...string) string {

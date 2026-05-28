@@ -6,12 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
-	"sync"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
+	"github.com/lannister-dev/go-node-agent/internal/wire/singboxgen"
+)
+
+const (
+	roleEntry           = "entry"
+	roleWhitelistEntry  = "whitelist_entry"
+	defaultSubject      = "nodes.traffic"
+	defaultTickInterval = 30 * time.Second
 )
 
 type ConnectionsSource interface {
@@ -28,20 +34,17 @@ type PublisherConfig struct {
 type connState struct {
 	upload   uint64
 	download uint64
-	backend  string
 }
 
 type Publisher struct {
-	cfg   PublisherConfig
-	pub   ports.Publisher
-	conns ConnectionsSource
-	log   *slog.Logger
-
-	mu       sync.Mutex
+	cfg      PublisherConfig
+	pub      ports.Publisher
+	conns    ConnectionsSource
+	log      *slog.Logger
 	lastConn map[string]connState
 }
 
-func NewPublisher(cfg PublisherConfig, pub ports.Publisher, _ *Reporter, conns ConnectionsSource, log *slog.Logger) (*Publisher, error) {
+func NewPublisher(cfg PublisherConfig, pub ports.Publisher, conns ConnectionsSource, log *slog.Logger) (*Publisher, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("traffic-publisher: NodeID required")
 	}
@@ -49,10 +52,10 @@ func NewPublisher(cfg PublisherConfig, pub ports.Publisher, _ *Reporter, conns C
 		return nil, errors.New("traffic-publisher: NodeRole required")
 	}
 	if cfg.Subject == "" {
-		cfg.Subject = "nodes.traffic"
+		cfg.Subject = defaultSubject
 	}
 	if cfg.Interval <= 0 {
-		cfg.Interval = 30 * time.Second
+		cfg.Interval = defaultTickInterval
 	}
 	if pub == nil {
 		return nil, errors.New("traffic-publisher: pub required")
@@ -108,7 +111,6 @@ func (p *Publisher) tick(ctx context.Context) error {
 	perBackendActive := map[string]uint64{}
 	cur := make(map[string]connState, len(snap.Conns))
 
-	p.mu.Lock()
 	for _, c := range snap.Conns {
 		backend := pickBackendID(c.Chains)
 		if backend == "" {
@@ -130,23 +132,22 @@ func (p *Publisher) tick(ctx context.Context) error {
 			perBackendIn[backend] += deltaDn
 		}
 		perBackendActive[backend]++
-		cur[c.ID] = connState{upload: c.Upload, download: c.Download, backend: backend}
+		cur[c.ID] = connState{upload: c.Upload, download: c.Download}
 	}
 	p.lastConn = cur
-	p.mu.Unlock()
 
 	if len(perBackendActive) == 0 {
 		return nil
 	}
 
-	isEntry := p.cfg.NodeRole == "entry" || p.cfg.NodeRole == "whitelist_entry"
+	isEntry := p.cfg.NodeRole == roleEntry || p.cfg.NodeRole == roleWhitelistEntry
 	deltas := make([]nodeTrafficPayload, 0, len(perBackendActive))
 	for backend, active := range perBackendActive {
 		d := nodeTrafficPayload{
+			BackendNodeID:  backend,
 			BytesIn:        perBackendIn[backend],
 			BytesOut:       perBackendOut[backend],
 			ActiveSessions: active,
-			BackendNodeID:  backend,
 		}
 		if isEntry {
 			d.EntryNodeID = string(p.cfg.NodeID)
@@ -164,20 +165,14 @@ func (p *Publisher) tick(ctx context.Context) error {
 	return nil
 }
 
-// pickBackendID parses sing-box clash chain entries.
-// Per-user backend outbounds are tagged "b-<client_uuid>-<backend_uuid>".
-// Returns the backend UUID, or "" if no backend chain found.
+// pickBackendID returns the backend UUID from a sing-box clash `chains` array.
+// Per-user outbounds are tagged "b-<client_uuid>-<backend_uuid>".
+// With urltest groups chains can be ["b-<u>-<b>", "auto-<u>"], so we scan for the b- entry.
 func pickBackendID(chains []string) string {
 	for _, tag := range chains {
-		if !strings.HasPrefix(tag, "b-") {
-			continue
+		if _, backend, ok := singboxgen.ParsePerUserOutboundTag(tag); ok {
+			return backend
 		}
-		parts := strings.Split(tag, "-")
-		// b - <5 parts of client uuid> - <5 parts of backend uuid> = 11 parts
-		if len(parts) < 11 {
-			continue
-		}
-		return strings.Join(parts[6:11], "-")
 	}
 	return ""
 }
