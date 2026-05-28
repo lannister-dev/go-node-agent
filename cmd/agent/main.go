@@ -346,6 +346,19 @@ func run() error {
 		}
 	}
 
+	var trafficPub *traffic.Publisher
+	if trafficReporter != nil {
+		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
+			NodeID:   nodeID,
+			NodeRole: cfg.NodeRole,
+			Subject:  "nodes.traffic",
+			Interval: cfg.TrafficInterval,
+		}, natsTr, trafficReporter, log)
+		if err != nil {
+			return err
+		}
+	}
+
 	var trafficSrc server.TrafficSource
 	if trafficReporter != nil {
 		trafficSrc = trafficReporter
@@ -383,6 +396,9 @@ func run() error {
 	}
 	if trafficReporter != nil {
 		g.Go(func() error { return trafficReporter.Run(gctx) })
+	}
+	if trafficPub != nil {
+		g.Go(func() error { return trafficPub.Run(gctx) })
 	}
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })
