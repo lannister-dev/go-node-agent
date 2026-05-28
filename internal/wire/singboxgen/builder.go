@@ -250,14 +250,6 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 	}
 }
 
-func outboundTagFor(id domain.BackendID) string {
-	return OutboundTagFor(id)
-}
-
-func OutboundTagFor(id domain.BackendID) string {
-	return "backend-" + strings.ToLower(string(id))
-}
-
 func perUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
 	return "b-" + strings.ToLower(string(clientID)) + "-" + strings.ToLower(string(backendID))
 }
@@ -269,17 +261,4 @@ func coalesce(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func dedupSorted(s []string) []string {
-	if len(s) <= 1 {
-		return s
-	}
-	out := s[:1]
-	for _, v := range s[1:] {
-		if v != out[len(out)-1] {
-			out = append(out, v)
-		}
-	}
-	return out
 }
