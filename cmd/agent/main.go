@@ -348,12 +348,16 @@ func run() error {
 
 	var trafficPub *traffic.Publisher
 	if trafficReporter != nil {
+		var connsSrc traffic.ConnectionsSource
+		if stack != nil && stack.singbox != nil {
+			connsSrc = stack.singbox
+		}
 		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
 			NodeID:   nodeID,
 			NodeRole: cfg.NodeRole,
 			Subject:  cfg.NATSNodesTrafficSubject,
 			Interval: cfg.TrafficInterval,
-		}, natsTr, trafficReporter, log)
+		}, natsTr, trafficReporter, connsSrc, log)
 		if err != nil {
 			return err
 		}

@@ -13,6 +13,10 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/ports"
 )
 
+type ConnectionsSource interface {
+	Connections(ctx context.Context) (ports.SingBoxConnections, error)
+}
+
 type PublisherConfig struct {
 	NodeID   domain.NodeID
 	NodeRole string
@@ -24,6 +28,7 @@ type Publisher struct {
 	cfg     PublisherConfig
 	pub     ports.Publisher
 	src     *Reporter
+	conns   ConnectionsSource
 	log     *slog.Logger
 	lastUp  atomic.Uint64
 	lastDn  atomic.Uint64
@@ -31,7 +36,7 @@ type Publisher struct {
 	totalDn atomic.Uint64
 }
 
-func NewPublisher(cfg PublisherConfig, pub ports.Publisher, src *Reporter, log *slog.Logger) (*Publisher, error) {
+func NewPublisher(cfg PublisherConfig, pub ports.Publisher, src *Reporter, conns ConnectionsSource, log *slog.Logger) (*Publisher, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("traffic-publisher: NodeID required")
 	}
@@ -50,7 +55,7 @@ func NewPublisher(cfg PublisherConfig, pub ports.Publisher, src *Reporter, log *
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Publisher{cfg: cfg, pub: pub, src: src, log: log.With("component", "traffic-publisher")}, nil
+	return &Publisher{cfg: cfg, pub: pub, src: src, conns: conns, log: log.With("component", "traffic-publisher")}, nil
 }
 
 type nodeTrafficPayload struct {
@@ -83,7 +88,17 @@ func (p *Publisher) tick(ctx context.Context) error {
 	dnCum := p.src.DownBytes()
 	deltaUp := upCum - p.lastUp.Load()
 	deltaDn := dnCum - p.lastDn.Load()
-	if deltaUp == 0 && deltaDn == 0 {
+
+	var active uint64
+	if p.conns != nil {
+		if cs, cerr := p.conns.Connections(ctx); cerr == nil {
+			active = cs.Total
+		} else {
+			p.log.Debug("connections fetch failed", "err", cerr)
+		}
+	}
+
+	if deltaUp == 0 && deltaDn == 0 && active == 0 {
 		return nil
 	}
 	p.lastUp.Store(upCum)
@@ -92,8 +107,9 @@ func (p *Publisher) tick(ctx context.Context) error {
 	p.totalDn.Add(deltaDn)
 
 	payload := nodeTrafficPayload{
-		BytesIn:  deltaDn,
-		BytesOut: deltaUp,
+		BytesIn:        deltaDn,
+		BytesOut:       deltaUp,
+		ActiveSessions: active,
 	}
 	if p.cfg.NodeRole == "entry" || p.cfg.NodeRole == "whitelist_entry" {
 		payload.EntryNodeID = string(p.cfg.NodeID)
