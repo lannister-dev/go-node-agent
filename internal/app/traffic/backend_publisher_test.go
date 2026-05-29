@@ -85,13 +85,13 @@ func TestBackendPublisher_AggregatesPerUserAndNodeTotal(t *testing.T) {
 	}
 	byID := map[string]userTrafficDelta{}
 	for _, u := range userMsg {
-		byID[u.ClientID] = u
+		byID[u.Identifier] = u
 	}
-	if byID[u1].UplinkBytes != 100 || byID[u1].DownlinkBytes != 200 || byID[u1].TotalBytes != 300 {
-		t.Errorf("u1: %+v", byID[u1])
+	if byID[u1].DeltaBytes != 300 {
+		t.Errorf("u1: %+v (want delta_bytes=300)", byID[u1])
 	}
-	if byID[u2].UplinkBytes != 50 || byID[u2].DownlinkBytes != 70 || byID[u2].TotalBytes != 120 {
-		t.Errorf("u2: %+v", byID[u2])
+	if byID[u2].DeltaBytes != 120 {
+		t.Errorf("u2: %+v (want delta_bytes=120)", byID[u2])
 	}
 }
 

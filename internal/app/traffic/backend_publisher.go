@@ -62,11 +62,11 @@ const (
 	linkDownlink = "downlink"
 )
 
+// userTrafficDelta matches control-api's services.traffic.users.schemas.UserTrafficIn.
+// Fields: identifier (client UUID), delta_bytes (uplink+downlink combined for the tick).
 type userTrafficDelta struct {
-	ClientID      string `json:"client_id"`
-	UplinkBytes   uint64 `json:"uplink_bytes"`
-	DownlinkBytes uint64 `json:"downlink_bytes"`
-	TotalBytes    uint64 `json:"total_bytes"`
+	Identifier string `json:"identifier"`
+	DeltaBytes uint64 `json:"delta_bytes"`
 }
 
 func (p *BackendPublisher) Run(ctx context.Context) error {
@@ -96,8 +96,13 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 	}
 	p.log.Debug("xray stats fetched", "rows", len(statsList))
 
-	// Aggregate per user.
-	users := map[string]*userTrafficDelta{}
+	// Aggregate per user: track uplink and downlink separately for node total,
+	// but ship a single combined delta_bytes to control-api.
+	type accum struct {
+		up   uint64
+		down uint64
+	}
+	users := map[string]*accum{}
 	for _, s := range statsList {
 		if s.Value <= 0 {
 			continue
@@ -105,16 +110,15 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 		v := uint64(s.Value)
 		u, ok := users[s.ClientID]
 		if !ok {
-			u = &userTrafficDelta{ClientID: s.ClientID}
+			u = &accum{}
 			users[s.ClientID] = u
 		}
 		switch s.Link {
 		case linkUplink:
-			u.UplinkBytes += v
+			u.up += v
 		case linkDownlink:
-			u.DownlinkBytes += v
+			u.down += v
 		}
-		u.TotalBytes = u.UplinkBytes + u.DownlinkBytes
 	}
 
 	if len(users) == 0 {
@@ -122,16 +126,17 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 		return nil
 	}
 
-	// Aggregate node-level totals.
+	// Aggregate node-level totals + build per-user list.
 	var sumUp, sumDown uint64
 	deltas := make([]userTrafficDelta, 0, len(users))
-	for _, u := range users {
-		if u.TotalBytes == 0 {
+	for clientID, u := range users {
+		total := u.up + u.down
+		if total == 0 {
 			continue
 		}
-		sumUp += u.UplinkBytes
-		sumDown += u.DownlinkBytes
-		deltas = append(deltas, *u)
+		sumUp += u.up
+		sumDown += u.down
+		deltas = append(deltas, userTrafficDelta{Identifier: clientID, DeltaBytes: total})
 	}
 
 	if sumUp == 0 && sumDown == 0 {
