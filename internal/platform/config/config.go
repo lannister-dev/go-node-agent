@@ -30,6 +30,8 @@ type Config struct {
 	NATSSyncReportPrefix    string
 	NATSNodesTrafficSubject string
 	NATSUsersTrafficSubject string
+	NATSPublishTimeout      time.Duration
+	NATSReconnectWait       time.Duration
 
 	SingBoxAPIURL     string
 	SingBoxConfigPath string
@@ -149,6 +151,12 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 	if cfg.ReconcileInterval, err = envDur("RECONCILE_INTERVAL", 5*time.Minute); err != nil {
+		return cfg, err
+	}
+	if cfg.NATSPublishTimeout, err = envDur("NATS_PUBLISH_TIMEOUT", 3*time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.NATSReconnectWait, err = envDur("NATS_RECONNECT_WAIT", 2*time.Second); err != nil {
 		return cfg, err
 	}
 

@@ -205,9 +205,11 @@ func run() error {
 	)
 
 	natsTr, err := natsa.New(ctx, natsa.Options{
-		URL:    cfg.NATSURL,
-		Name:   cfg.NATSName + "-" + string(nodeID),
-		Logger: log,
+		URL:            cfg.NATSURL,
+		Name:           cfg.NATSName + "-" + string(nodeID),
+		PublishTimeout: cfg.NATSPublishTimeout,
+		ReconnectWait:  cfg.NATSReconnectWait,
+		Logger:         log,
 	})
 	if err != nil {
 		return err
