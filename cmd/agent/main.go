@@ -363,6 +363,16 @@ func run() error {
 		}
 	}
 
+	var statsRep *traffic.StatsReporter
+	if stack != nil && stack.singbox != nil {
+		statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
+			NodeID: nodeID,
+		}, natsTr, stack.singbox, log)
+		if err != nil {
+			return err
+		}
+	}
+
 	var backendTrafficPub *traffic.BackendPublisher
 	if backendStack != nil && backendStack.xray != nil {
 		backendTrafficPub, err = traffic.NewBackendPublisher(traffic.BackendPublisherConfig{
@@ -419,6 +429,9 @@ func run() error {
 	}
 	if backendTrafficPub != nil {
 		g.Go(func() error { return backendTrafficPub.Run(gctx) })
+	}
+	if statsRep != nil {
+		g.Go(func() error { return statsRep.Run(gctx) })
 	}
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })
