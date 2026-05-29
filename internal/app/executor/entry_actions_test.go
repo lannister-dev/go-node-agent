@@ -20,8 +20,15 @@ type fakeSingBox struct {
 	reloads     int
 	writeErr    error
 	reloadErr   error
+	selectErr   error
+	selects     []selectorCall
 	connections ports.SingBoxConnections
 	connErr     error
+}
+
+type selectorCall struct {
+	Selector string
+	Target   string
 }
 
 func (f *fakeSingBox) WriteConfig(_ context.Context, cfg ports.SingBoxConfig) error {
@@ -44,6 +51,24 @@ func (f *fakeSingBox) Reload(_ context.Context) error {
 	}
 	f.reloads++
 	return nil
+}
+
+func (f *fakeSingBox) SelectOutbound(_ context.Context, selectorTag, target string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.selectErr != nil {
+		return f.selectErr
+	}
+	f.selects = append(f.selects, selectorCall{Selector: selectorTag, Target: target})
+	return nil
+}
+
+func (f *fakeSingBox) selectCalls() []selectorCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]selectorCall, len(f.selects))
+	copy(out, f.selects)
+	return out
 }
 
 func (f *fakeSingBox) Connections(_ context.Context) (ports.SingBoxConnections, error) {
@@ -179,7 +204,7 @@ func TestValidateBackend_FailsForUnknownBackend(t *testing.T) {
 	}
 }
 
-func TestSwapRoute_PersistsAndReloads(t *testing.T) {
+func TestSwapRoute_UsesSelectorFlipWithoutReload(t *testing.T) {
 	sb := &fakeSingBox{}
 	existing := samplePlacement()
 	store := newMemStore(existing)
@@ -198,11 +223,18 @@ func TestSwapRoute_PersistsAndReloads(t *testing.T) {
 		t.Fatalf("swap: %v", err)
 	}
 
-	if sb.configCount() != 1 {
-		t.Errorf("WriteConfig calls: %d", sb.configCount())
+	if sb.configCount() != 0 {
+		t.Errorf("WriteConfig must not run for known user: %d", sb.configCount())
 	}
-	if sb.reloadCount() != 1 {
-		t.Errorf("Reload calls: %d", sb.reloadCount())
+	if sb.reloadCount() != 0 {
+		t.Errorf("Reload must not run for known user: %d", sb.reloadCount())
+	}
+	calls := sb.selectCalls()
+	if len(calls) != 1 {
+		t.Fatalf("SelectOutbound calls: %d", len(calls))
+	}
+	if calls[0].Selector != "u-uuid-a" || calls[0].Target != "b-uuid-a-latvia-01" {
+		t.Errorf("selector call: %+v", calls[0])
 	}
 
 	stored, _, _ := store.GetPlacement(t.Context(), existing.ID)
@@ -212,7 +244,29 @@ func TestSwapRoute_PersistsAndReloads(t *testing.T) {
 	if stored.Applied != domain.AppliedOk {
 		t.Errorf("Applied: %s", stored.Applied)
 	}
+}
 
+func TestSwapRoute_SelectorFailureFallsBackToReload(t *testing.T) {
+	sb := &fakeSingBox{selectErr: errors.New("clash 500")}
+	existing := samplePlacement()
+	store := newMemStore(existing)
+	a := newActions(t, sb, store, backendsRegistry())
+
+	target := existing
+	target.BackendNodeID = "latvia-01"
+	target.OpVersion = 2
+	plan := domain.FlipPlan{
+		PlacementID: existing.ID,
+		OldBackend:  "praha-02",
+		NewBackend:  "latvia-01",
+		Desired:     target,
+	}
+	if err := a.SwapRoute(t.Context(), plan); err != nil {
+		t.Fatalf("swap fallback: %v", err)
+	}
+	if sb.configCount() != 1 || sb.reloadCount() != 1 {
+		t.Errorf("expected fallback to rebuild+reload; got configs=%d reloads=%d", sb.configCount(), sb.reloadCount())
+	}
 	var cfg map[string]any
 	if err := json.Unmarshal(sb.lastConfig(), &cfg); err != nil {
 		t.Fatalf("config: %v", err)
@@ -222,8 +276,8 @@ func TestSwapRoute_PersistsAndReloads(t *testing.T) {
 		t.Fatalf("rules: %d", len(rules))
 	}
 	r := rules[0].(map[string]any)
-	if r["outbound"] != "b-uuid-a-latvia-01" {
-		t.Errorf("route after swap: %v", r)
+	if r["outbound"] != "u-uuid-a" {
+		t.Errorf("route after fallback: %v", r)
 	}
 }
 
@@ -244,7 +298,10 @@ func TestSwapRoute_StoreErrorAbortsBeforeSingBox(t *testing.T) {
 }
 
 func TestSwapRoute_ReloadFailureSurfaces(t *testing.T) {
-	sb := &fakeSingBox{reloadErr: errors.New("singbox 500")}
+	sb := &fakeSingBox{
+		selectErr: errors.New("clash 500"),
+		reloadErr: errors.New("singbox 500"),
+	}
 	store := newMemStore(samplePlacement())
 	a := newActions(t, sb, store, backendsRegistry())
 	target := samplePlacement()
@@ -252,7 +309,7 @@ func TestSwapRoute_ReloadFailureSurfaces(t *testing.T) {
 	plan := domain.FlipPlan{PlacementID: "p-1", OldBackend: "praha-02", NewBackend: "latvia-01", Desired: target}
 	err := a.SwapRoute(t.Context(), plan)
 	if err == nil {
-		t.Fatal("expected reload error")
+		t.Fatal("expected reload error from fallback")
 	}
 }
 

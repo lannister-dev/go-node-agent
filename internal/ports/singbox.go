@@ -22,6 +22,7 @@ type SingBoxConn struct {
 type SingBox interface {
 	WriteConfig(ctx context.Context, cfg SingBoxConfig) error
 	Reload(ctx context.Context) error
+	SelectOutbound(ctx context.Context, selectorTag, target string) error
 	Connections(ctx context.Context) (SingBoxConnections, error)
 	Healthy(ctx context.Context) error
 }

@@ -92,11 +92,23 @@ func (a *EntryActions) SwapRoute(ctx context.Context, plan domain.FlipPlan) erro
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
 
+	if a.trySelectorFlip(ctx, &desired) {
+		if err := a.store.PutPlacement(ctx, desired); err != nil {
+			return fmt.Errorf("swap: persist placement: %w", err)
+		}
+		a.log.Info("route swapped via selector",
+			"placement_id", plan.PlacementID,
+			"old", plan.OldBackend,
+			"new", plan.NewBackend,
+		)
+		return nil
+	}
+
 	if a.coalescer != nil {
 		if err := a.coalescer.Apply(ctx, &desired); err != nil {
 			return fmt.Errorf("swap: coalesce: %w", err)
 		}
-		a.log.Info("route swapped",
+		a.log.Info("route swapped (rebuild)",
 			"placement_id", plan.PlacementID,
 			"old", plan.OldBackend,
 			"new", plan.NewBackend,
@@ -117,12 +129,53 @@ func (a *EntryActions) SwapRoute(ctx context.Context, plan domain.FlipPlan) erro
 	if err := a.store.PutPlacement(ctx, desired); err != nil {
 		return fmt.Errorf("swap: persist placement: %w", err)
 	}
-	a.log.Info("route swapped",
+	a.log.Info("route swapped (rebuild)",
 		"placement_id", plan.PlacementID,
 		"old", plan.OldBackend,
 		"new", plan.NewBackend,
 	)
 	return nil
+}
+
+// trySelectorFlip applies a backend change for a known user via Clash API selector PUT — no reload.
+// Returns true if the flip was applied (caller must persist), false if a full rebuild is required.
+func (a *EntryActions) trySelectorFlip(ctx context.Context, desired *domain.Placement) bool {
+	if desired == nil || desired.ClientID == "" || desired.Desired != domain.DesiredActive {
+		return false
+	}
+	placements, err := a.store.ListPlacements(ctx)
+	if err != nil {
+		return false
+	}
+	userKnown := false
+	for _, p := range placements {
+		if p.ClientID == desired.ClientID && p.Desired == domain.DesiredActive && p.ID != desired.ID {
+			userKnown = true
+			break
+		}
+		if p.ID == desired.ID && p.ClientID == desired.ClientID && p.Desired == domain.DesiredActive {
+			userKnown = true
+			break
+		}
+	}
+	if !userKnown {
+		return false
+	}
+	if _, ok := a.backends.Get(desired.BackendNodeID); !ok {
+		return false
+	}
+	selectorTag := singboxgen.PerUserSelectorTagFor(desired.ClientID)
+	target := singboxgen.PerUserOutboundTagFor(desired.ClientID, desired.BackendNodeID)
+	if err := a.singbox.SelectOutbound(ctx, selectorTag, target); err != nil {
+		a.log.Warn("selector flip failed, falling back to rebuild",
+			"placement_id", desired.ID,
+			"selector", selectorTag,
+			"target", target,
+			"err", err,
+		)
+		return false
+	}
+	return true
 }
 
 func (a *EntryActions) OldBackendConnections(ctx context.Context, plan domain.FlipPlan) (uint64, error) {
@@ -187,7 +240,7 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 			return fmt.Errorf("simple-apply: backend %s not in registry", desired.BackendNodeID)
 		}
 	}
-	current, _, err := a.store.GetPlacement(ctx, desired.ID)
+	current, found, err := a.store.GetPlacement(ctx, desired.ID)
 	if err != nil {
 		return fmt.Errorf("simple-apply: load current placement: %w", err)
 	}
@@ -201,6 +254,18 @@ func (a *EntryActions) SimpleApply(ctx context.Context, desired domain.Placement
 	}
 	desired.Applied = domain.AppliedOk
 	desired.LastAppliedAt = time.Now().UTC()
+
+	if found && current.ClientID == desired.ClientID && a.trySelectorFlip(ctx, &desired) {
+		if err := a.store.PutPlacement(ctx, desired); err != nil {
+			return fmt.Errorf("simple-apply: persist after selector flip: %w", err)
+		}
+		a.log.Debug("simple-apply via selector",
+			"placement_id", desired.ID,
+			"desired_state", desired.Desired,
+			"backend", desired.BackendNodeID,
+		)
+		return nil
+	}
 
 	if a.coalescer != nil {
 		if err := a.coalescer.Apply(ctx, &desired); err != nil {

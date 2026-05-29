@@ -11,11 +11,25 @@ import (
 )
 
 const (
-	directOutboundTag = "direct"
-	blockOutboundTag  = "block"
-	vlessType         = "vless"
-	defaultClashAddr  = "127.0.0.1:9090"
+	directOutboundTag        = "direct"
+	blockOutboundTag         = "block"
+	vlessType                = "vless"
+	selectorType             = "selector"
+	defaultClashAddr         = "127.0.0.1:9090"
+	PerUserSelectorTagPrefix = "u-"
 )
+
+func perUserSelectorTagFor(clientID domain.ClientID) string {
+	return PerUserSelectorTagPrefix + strings.ToLower(string(clientID))
+}
+
+func PerUserSelectorTagFor(clientID domain.ClientID) string {
+	return perUserSelectorTagFor(clientID)
+}
+
+func PerUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
+	return perUserOutboundTagFor(clientID, backendID)
+}
 
 func Build(state NodeState) ([]byte, error) {
 	if err := validate(state); err != nil {
@@ -147,53 +161,65 @@ func buildTLS(r RealitySpec) *tlsConfig {
 }
 
 func buildOutbounds(placements []domain.Placement, backends []BackendSpec) []outbound {
-	out := make([]outbound, 0, 2+len(placements))
-	out = append(out,
-		outbound{Type: directOutboundTag, Tag: directOutboundTag},
-		outbound{Type: blockOutboundTag, Tag: blockOutboundTag},
-	)
 	backendByID := map[domain.BackendID]BackendSpec{}
+	sortedBackends := make([]BackendSpec, 0, len(backends))
 	for _, b := range backends {
 		backendByID[b.ID] = b
+		sortedBackends = append(sortedBackends, b)
 	}
-	type pair struct {
-		ClientID  domain.ClientID
-		BackendID domain.BackendID
-	}
-	seen := map[pair]bool{}
-	pairs := make([]pair, 0, len(placements))
+	sort.Slice(sortedBackends, func(i, j int) bool {
+		return sortedBackends[i].ID < sortedBackends[j].ID
+	})
+
+	desiredBackendByUser := map[domain.ClientID]domain.BackendID{}
+	users := make([]domain.ClientID, 0, len(placements))
+	seenUser := map[domain.ClientID]bool{}
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive {
-			continue
-		}
-		if _, ok := backendByID[p.BackendNodeID]; !ok {
 			continue
 		}
 		if p.ClientID == "" {
 			continue
 		}
-		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
-		if seen[k] {
+		if _, ok := backendByID[p.BackendNodeID]; !ok {
 			continue
 		}
-		seen[k] = true
-		pairs = append(pairs, k)
-	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].BackendID != pairs[j].BackendID {
-			return pairs[i].BackendID < pairs[j].BackendID
+		if !seenUser[p.ClientID] {
+			seenUser[p.ClientID] = true
+			users = append(users, p.ClientID)
 		}
-		return pairs[i].ClientID < pairs[j].ClientID
-	})
-	for _, p := range pairs {
-		b := backendByID[p.BackendID]
+		desiredBackendByUser[p.ClientID] = p.BackendNodeID
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
+
+	out := make([]outbound, 0, 2+len(users)*(len(sortedBackends)+1))
+	out = append(out,
+		outbound{Type: directOutboundTag, Tag: directOutboundTag},
+		outbound{Type: blockOutboundTag, Tag: blockOutboundTag},
+	)
+
+	for _, uid := range users {
+		for _, b := range sortedBackends {
+			out = append(out, outbound{
+				Type:       vlessType,
+				Tag:        perUserOutboundTagFor(uid, b.ID),
+				Server:     b.Address,
+				ServerPort: b.Port,
+				UUID:       string(uid),
+				Flow:       "",
+			})
+		}
+		options := make([]string, 0, len(sortedBackends)+1)
+		for _, b := range sortedBackends {
+			options = append(options, perUserOutboundTagFor(uid, b.ID))
+		}
+		options = append(options, blockOutboundTag)
 		out = append(out, outbound{
-			Type:       vlessType,
-			Tag:        perUserOutboundTagFor(p.ClientID, p.BackendID),
-			Server:     b.Address,
-			ServerPort: b.Port,
-			UUID:       string(p.ClientID),
-			Flow:       "",
+			Type:                      selectorType,
+			Tag:                       perUserSelectorTagFor(uid),
+			Outbounds:                 options,
+			Default:                   perUserOutboundTagFor(uid, desiredBackendByUser[uid]),
+			InterruptExistConnections: false,
 		})
 	}
 	return out
@@ -205,12 +231,8 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		backendByID[b.ID] = true
 	}
 
-	type pair struct {
-		ClientID  domain.ClientID
-		BackendID domain.BackendID
-	}
-	seen := map[pair]bool{}
-	pairs := make([]pair, 0, len(placements))
+	seen := map[domain.ClientID]bool{}
+	users := make([]domain.ClientID, 0, len(placements))
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive {
 			continue
@@ -221,25 +243,19 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		if p.ClientID == "" {
 			continue
 		}
-		k := pair{ClientID: p.ClientID, BackendID: p.BackendNodeID}
-		if seen[k] {
+		if seen[p.ClientID] {
 			continue
 		}
-		seen[k] = true
-		pairs = append(pairs, k)
+		seen[p.ClientID] = true
+		users = append(users, p.ClientID)
 	}
-	sort.Slice(pairs, func(i, j int) bool {
-		if pairs[i].BackendID != pairs[j].BackendID {
-			return pairs[i].BackendID < pairs[j].BackendID
-		}
-		return pairs[i].ClientID < pairs[j].ClientID
-	})
+	sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
 
-	rules := make([]routeRule, 0, len(pairs))
-	for _, p := range pairs {
+	rules := make([]routeRule, 0, len(users))
+	for _, uid := range users {
 		rules = append(rules, routeRule{
-			AuthUser: []string{string(p.ClientID)},
-			Outbound: perUserOutboundTagFor(p.ClientID, p.BackendID),
+			AuthUser: []string{string(uid)},
+			Outbound: perUserSelectorTagFor(uid),
 		})
 	}
 
