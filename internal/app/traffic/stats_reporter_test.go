@@ -6,7 +6,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
+	"github.com/lannister-dev/go-node-agent/internal/wire/singboxgen"
 )
 
 type kvCapture struct {
@@ -46,7 +48,11 @@ func TestStatsReporter_AggregatesByBackendAndClient(t *testing.T) {
 		}},
 	}}
 	kv := &kvCapture{}
-	r, err := NewStatsReporter(StatsReporterConfig{NodeID: nodeID}, kv, conns, silentLog())
+	registry := &fakeBackends{names: map[string]string{
+		bA: "alpha-backend-01",
+		bB: "beta-backend-01",
+	}}
+	r, err := NewStatsReporter(StatsReporterConfig{NodeID: nodeID}, kv, conns, registry, silentLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,11 +70,11 @@ func TestStatsReporter_AggregatesByBackendAndClient(t *testing.T) {
 	if p.Total != 4 {
 		t.Errorf("total=%d want 4", p.Total)
 	}
-	if p.ByBackend["backend-"+bA] != 2 {
-		t.Errorf("backend-A count=%d want 2", p.ByBackend["backend-"+bA])
+	if p.ByBackend["backend-alpha-backend-01"] != 2 {
+		t.Errorf("backend-alpha count=%d want 2", p.ByBackend["backend-alpha-backend-01"])
 	}
-	if p.ByBackend["backend-"+bB] != 1 {
-		t.Errorf("backend-B count=%d", p.ByBackend["backend-"+bB])
+	if p.ByBackend["backend-beta-backend-01"] != 1 {
+		t.Errorf("backend-beta count=%d", p.ByBackend["backend-beta-backend-01"])
 	}
 	if p.ByBackend[tagDirect] != 1 {
 		t.Errorf("direct count=%d", p.ByBackend[tagDirect])
@@ -89,22 +95,37 @@ func TestAggregatedBackendTag(t *testing.T) {
 		u = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 		b = "44444444-4444-4444-4444-444444444444"
 	)
+	resolver := &fakeBackends{names: map[string]string{b: "alpha-backend-01"}}
+	r := &StatsReporter{backends: resolver}
 	cases := []struct {
 		name   string
 		chains []string
 		want   string
 	}{
-		{"per-user single", []string{"b-" + u + "-" + b}, "backend-" + b},
-		{"urltest order: per-user first", []string{"b-" + u + "-" + b, "auto-" + u}, "backend-" + b},
-		{"urltest order: auto first", []string{"auto-" + u, "b-" + u + "-" + b}, "backend-" + b},
+		{"per-user single", []string{"b-" + u + "-" + b}, "backend-alpha-backend-01"},
+		{"urltest order: per-user first", []string{"b-" + u + "-" + b, "auto-" + u}, "backend-alpha-backend-01"},
+		{"urltest order: auto first", []string{"auto-" + u, "b-" + u + "-" + b}, "backend-alpha-backend-01"},
+		{"unknown backend falls back to id", []string{"b-" + u + "-99999999-9999-9999-9999-999999999999"}, "backend-99999999-9999-9999-9999-999999999999"},
 		{"direct only", []string{"direct"}, "direct"},
 		{"empty", []string{}, "direct"},
 		{"malformed b-", []string{"b-too-short"}, "b-too-short"},
 	}
 	for _, c := range cases {
-		got := aggregatedBackendTag(c.chains)
+		got := r.aggregatedBackendTag(c.chains)
 		if got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
 		}
 	}
+}
+
+type fakeBackends struct {
+	names map[string]string
+}
+
+func (f *fakeBackends) Get(id domain.BackendID) (singboxgen.BackendSpec, bool) {
+	name, ok := f.names[string(id)]
+	if !ok {
+		return singboxgen.BackendSpec{}, false
+	}
+	return singboxgen.BackendSpec{ID: id, Name: name}, true
 }

@@ -27,6 +27,10 @@ type KVPutter interface {
 	KVPut(ctx context.Context, bucket, key string, payload []byte) error
 }
 
+type BackendNameResolver interface {
+	Get(id domain.BackendID) (singboxgen.BackendSpec, bool)
+}
+
 type StatsReporterConfig struct {
 	NodeID   domain.NodeID
 	Bucket   string
@@ -34,13 +38,14 @@ type StatsReporterConfig struct {
 }
 
 type StatsReporter struct {
-	cfg   StatsReporterConfig
-	kv    KVPutter
-	conns ConnectionsSource
-	log   *slog.Logger
+	cfg      StatsReporterConfig
+	kv       KVPutter
+	conns    ConnectionsSource
+	backends BackendNameResolver
+	log      *slog.Logger
 }
 
-func NewStatsReporter(cfg StatsReporterConfig, kv KVPutter, conns ConnectionsSource, log *slog.Logger) (*StatsReporter, error) {
+func NewStatsReporter(cfg StatsReporterConfig, kv KVPutter, conns ConnectionsSource, backends BackendNameResolver, log *slog.Logger) (*StatsReporter, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("stats-reporter: NodeID required")
 	}
@@ -57,10 +62,11 @@ func NewStatsReporter(cfg StatsReporterConfig, kv KVPutter, conns ConnectionsSou
 		log = slog.Default()
 	}
 	return &StatsReporter{
-		cfg:   cfg,
-		kv:    kv,
-		conns: conns,
-		log:   log.With("component", "stats-reporter"),
+		cfg:      cfg,
+		kv:       kv,
+		conns:    conns,
+		backends: backends,
+		log:      log.With("component", "stats-reporter"),
 	}, nil
 }
 
@@ -106,7 +112,7 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	byBackend := map[string]int{}
 	byClient := map[string]int{}
 	for _, c := range snap.Conns {
-		tag := aggregatedBackendTag(c.Chains)
+		tag := r.aggregatedBackendTag(c.Chains)
 		byBackend[tag]++
 		// Best-effort: parsed user is the first b-<uuid>-... in chains.
 		if u, _, ok := pickClientAndBackend(c.Chains); ok && u != "" {
@@ -133,11 +139,7 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	return nil
 }
 
-// aggregatedBackendTag mirrors the python agent's stats_reporter.aggregated_backend_tag:
-// converts a per-user outbound tag `b-<client_uuid>-<backend_id>` into a stable
-// backend-only key `backend-<backend_id>` so control-api can sum across users.
-// Anything else (including "direct") is returned verbatim.
-func aggregatedBackendTag(chains []string) string {
+func (r *StatsReporter) aggregatedBackendTag(chains []string) string {
 	for _, c := range chains {
 		if !strings.HasPrefix(c, singboxgen.PerUserOutboundTagPrefix) {
 			continue
@@ -146,7 +148,13 @@ func aggregatedBackendTag(chains []string) string {
 		if !ok {
 			continue
 		}
-		return "backend-" + backend
+		name := backend
+		if r.backends != nil {
+			if spec, found := r.backends.Get(domain.BackendID(backend)); found && spec.Name != "" {
+				name = spec.Name
+			}
+		}
+		return "backend-" + name
 	}
 	if len(chains) > 0 {
 		return chains[len(chains)-1]

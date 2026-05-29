@@ -14,6 +14,7 @@ type upstreamChangedPayloadDTO struct {
 	NodeID               string  `json:"node_id"`
 	EmittedAt            string  `json:"emitted_at"`
 	UpstreamNodeID       string  `json:"upstream_node_id"`
+	UpstreamName         string  `json:"upstream_name,omitempty"`
 	UpstreamPublicHost   string  `json:"upstream_public_domain"`
 	UpstreamRealityIP    *string `json:"upstream_reality_ip,omitempty"`
 	UpstreamInternalWgIP *string `json:"upstream_internal_wg_ip,omitempty"`
@@ -25,6 +26,7 @@ type UpstreamChange struct {
 	EventID      string
 	NodeID       domain.NodeID
 	BackendID    domain.BackendID
+	BackendName  string
 	PublicDomain string
 	RealityIP    string
 	InternalWgIP string
@@ -44,6 +46,7 @@ func UnmarshalUpstreamChanged(data []byte) (UpstreamChange, error) {
 		EventID:      dto.EventID,
 		NodeID:       domain.NodeID(dto.NodeID),
 		BackendID:    domain.BackendID(dto.UpstreamNodeID),
+		BackendName:  dto.UpstreamName,
 		PublicDomain: dto.UpstreamPublicHost,
 		Removed:      dto.Removed,
 	}

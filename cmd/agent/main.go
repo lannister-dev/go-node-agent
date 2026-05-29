@@ -364,10 +364,10 @@ func run() error {
 	}
 
 	var statsRep *traffic.StatsReporter
-	if stack != nil && stack.singbox != nil {
+	if stack != nil && stack.singbox != nil && stack.registry != nil {
 		statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
 			NodeID: nodeID,
-		}, natsTr, stack.singbox, log)
+		}, natsTr, stack.singbox, stack.registry, log)
 		if err != nil {
 			return err
 		}
