@@ -94,6 +94,7 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("xray stats query: %w", err)
 	}
+	p.log.Debug("xray stats fetched", "rows", len(statsList))
 
 	// Aggregate per user.
 	users := map[string]*userTrafficDelta{}
@@ -117,6 +118,7 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 	}
 
 	if len(users) == 0 {
+		p.log.Debug("backend traffic tick: no user stats", "raw_rows", len(statsList))
 		return nil
 	}
 
@@ -135,6 +137,7 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 	if sumUp == 0 && sumDown == 0 {
 		return nil
 	}
+	p.log.Info("backend traffic publish", "users", len(deltas), "bytes_in", sumUp, "bytes_out", sumDown)
 
 	// Publish node-level aggregate to nodes.traffic.
 	nodePayload := []nodeTrafficPayload{{
