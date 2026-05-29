@@ -23,22 +23,27 @@ type BackendPublisherConfig struct {
 	NodeID             domain.NodeID
 	NodeTrafficSubject string
 	UserTrafficSubject string
+	LiveStatsBucket    string
 	Interval           time.Duration
 }
 
 type BackendPublisher struct {
 	cfg   BackendPublisherConfig
 	pub   ports.Publisher
+	kv    KVPutter
 	stats XrayStatsSource
 	log   *slog.Logger
 }
 
-func NewBackendPublisher(cfg BackendPublisherConfig, pub ports.Publisher, stats XrayStatsSource, log *slog.Logger) (*BackendPublisher, error) {
+func NewBackendPublisher(cfg BackendPublisherConfig, pub ports.Publisher, kv KVPutter, stats XrayStatsSource, log *slog.Logger) (*BackendPublisher, error) {
 	if cfg.NodeID == "" {
 		return nil, errors.New("backend-traffic-publisher: NodeID required")
 	}
 	if cfg.NodeTrafficSubject == "" {
 		cfg.NodeTrafficSubject = defaultSubject
+	}
+	if cfg.LiveStatsBucket == "" {
+		cfg.LiveStatsBucket = StatsKvBucket
 	}
 	if cfg.Interval <= 0 {
 		cfg.Interval = defaultTickInterval
@@ -52,9 +57,18 @@ func NewBackendPublisher(cfg BackendPublisherConfig, pub ports.Publisher, stats 
 	return &BackendPublisher{
 		cfg:   cfg,
 		pub:   pub,
+		kv:    kv,
 		stats: stats,
 		log:   log.With("component", "backend-traffic-publisher"),
 	}, nil
+}
+
+const backendStatsKeyPrefix = "backend."
+
+type backendLivePayload struct {
+	NodeID          string   `json:"node_id"`
+	Ts              string   `json:"ts"`
+	ActiveClientIDs []string `json:"active_client_ids"`
 }
 
 const (
@@ -123,12 +137,14 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 
 	if len(users) == 0 {
 		p.log.Debug("backend traffic tick: no user stats", "raw_rows", len(statsList))
+		p.publishLive(ctx, nil)
 		return nil
 	}
 
 	// Aggregate node-level totals + build per-user list.
 	var sumUp, sumDown uint64
 	deltas := make([]userTrafficDelta, 0, len(users))
+	activeIDs := make([]string, 0, len(users))
 	for clientID, u := range users {
 		total := u.up + u.down
 		if total == 0 {
@@ -137,7 +153,9 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 		sumUp += u.up
 		sumDown += u.down
 		deltas = append(deltas, userTrafficDelta{Identifier: clientID, DeltaBytes: total})
+		activeIDs = append(activeIDs, clientID)
 	}
+	p.publishLive(ctx, activeIDs)
 
 	if sumUp == 0 && sumDown == 0 {
 		return nil
@@ -169,4 +187,27 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// publishLive writes the set of currently-active client_ids to KV so the admin
+// can resolve them to real user_ids and show a live user count per backend.
+// Best-effort: KV failures are logged but never fail the parent tick.
+func (p *BackendPublisher) publishLive(ctx context.Context, activeIDs []string) {
+	if p.kv == nil {
+		return
+	}
+	payload := backendLivePayload{
+		NodeID:          string(p.cfg.NodeID),
+		Ts:              time.Now().UTC().Format(time.RFC3339Nano),
+		ActiveClientIDs: activeIDs,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		p.log.Warn("backend live stats marshal failed", "err", err)
+		return
+	}
+	key := backendStatsKeyPrefix + string(p.cfg.NodeID)
+	if err := p.kv.KVPut(ctx, p.cfg.LiveStatsBucket, key, data); err != nil {
+		p.log.Warn("backend live stats kv put failed", "err", err)
+	}
 }

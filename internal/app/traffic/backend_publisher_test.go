@@ -47,7 +47,7 @@ func TestBackendPublisher_AggregatesPerUserAndNodeTotal(t *testing.T) {
 		NodeID:             backendID,
 		NodeTrafficSubject: "nodes.traffic",
 		UserTrafficSubject: "users.traffic",
-	}, pub, stats, silentLog())
+	}, pub, &kvCapture{}, stats, silentLog())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestBackendPublisher_NoPublishOnEmpty(t *testing.T) {
 		NodeID:             "44444444-4444-4444-4444-444444444444",
 		NodeTrafficSubject: "nodes.traffic",
 		UserTrafficSubject: "users.traffic",
-	}, pub, stats, silentLog())
+	}, pub, &kvCapture{}, stats, silentLog())
 	_ = p.tick(t.Context())
 	if len(pub.msgs) != 0 {
 		t.Errorf("expected no publishes, got %d", len(pub.msgs))
@@ -118,7 +118,7 @@ func TestBackendPublisher_SkipsZeroValues(t *testing.T) {
 	p, _ := NewBackendPublisher(BackendPublisherConfig{
 		NodeID:             "44444444-4444-4444-4444-444444444444",
 		NodeTrafficSubject: "nodes.traffic",
-	}, pub, stats, silentLog())
+	}, pub, &kvCapture{}, stats, silentLog())
 	_ = p.tick(t.Context())
 	if len(pub.msgs) != 0 {
 		t.Errorf("expected no publishes, got %d", len(pub.msgs))

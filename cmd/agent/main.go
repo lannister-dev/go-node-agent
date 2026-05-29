@@ -380,7 +380,7 @@ func run() error {
 			NodeTrafficSubject: cfg.NATSNodesTrafficSubject,
 			UserTrafficSubject: cfg.NATSUsersTrafficSubject,
 			Interval:           cfg.TrafficInterval,
-		}, natsTr, backendStack.xray, log)
+		}, natsTr, natsTr, backendStack.xray, log)
 		if err != nil {
 			return err
 		}
