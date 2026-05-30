@@ -10,6 +10,21 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
+func recreateInterface(name string) error {
+	link, err := netlink.LinkByName(name)
+	if err != nil {
+		var notFound netlink.LinkNotFoundError
+		if errors.As(err, &notFound) {
+			return nil
+		}
+		return fmt.Errorf("wg: lookup %s: %w", name, err)
+	}
+	if err := netlink.LinkDel(link); err != nil {
+		return fmt.Errorf("wg: delete %s: %w", name, err)
+	}
+	return nil
+}
+
 func syncRoutes(name string, allowedIPs []*net.IPNet) error {
 	link, err := netlink.LinkByName(name)
 	if err != nil {

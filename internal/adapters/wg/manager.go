@@ -64,22 +64,27 @@ func (m *Manager) Apply(s ApplyState) error {
 	if err != nil {
 		return err
 	}
-	if err := ensureInterface(m.iface, addr, mask); err != nil {
-		return err
+	listenPort := s.ListenPort
+	if listenPort == 0 {
+		listenPort = DefaultListenPort
 	}
 	client, err := wgctrl.New()
 	if err != nil {
 		return fmt.Errorf("wg: new client: %w", err)
 	}
 	defer func() { _ = client.Close() }()
+	if dev, derr := client.Device(m.iface); derr == nil && dev.ListenPort != 0 && dev.ListenPort != listenPort {
+		if err := recreateInterface(m.iface); err != nil {
+			return fmt.Errorf("wg: recreate %s for port change %d→%d: %w", m.iface, dev.ListenPort, listenPort, err)
+		}
+	}
+	if err := ensureInterface(m.iface, addr, mask); err != nil {
+		return err
+	}
 
 	peers, err := buildPeers(s.Peers)
 	if err != nil {
 		return err
-	}
-	listenPort := s.ListenPort
-	if listenPort == 0 {
-		listenPort = DefaultListenPort
 	}
 	cfg := wgtypes.Config{
 		PrivateKey:   &m.priv,
