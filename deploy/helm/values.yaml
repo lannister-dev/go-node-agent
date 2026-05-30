@@ -76,7 +76,7 @@ wg:
   enabled: false
   interface: wg0
   keyDir: /var/lib/go-node-agent/wg
-  listenPort: 51820
+  listenPort: 4500
 
 executor:
   enabled: false
