@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	DefaultListenPort   = 51820
+	DefaultListenPort   = 4500
 	DefaultKeepaliveSec = 25
 	DefaultInterface    = "wg0"
 	privateKeyFile      = "wg-private.key"

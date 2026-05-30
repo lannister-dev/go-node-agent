@@ -134,7 +134,7 @@ func Load() (Config, error) {
 	cfg.WgEnabled = envBool("WG_ENABLED", false)
 	cfg.WgInterface = env("WG_INTERFACE", "wg0")
 	cfg.WgKeyDir = env("WG_KEY_DIR", "/var/lib/go-node-agent/wg")
-	if cfg.WgListenPort, err = envU16("WG_LISTEN_PORT", 51820); err != nil {
+	if cfg.WgListenPort, err = envU16("WG_LISTEN_PORT", 4500); err != nil {
 		return cfg, err
 	}
 
