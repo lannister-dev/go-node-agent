@@ -38,9 +38,9 @@ type Consumer struct {
 	syncedItems    atomic.Uint32
 	completed      atomic.Bool
 
-	seenMu    sync.Mutex
-	seenIDs   map[domain.PlacementID]struct{}
-	seenSnap  string
+	seenMu   sync.Mutex
+	seenIDs  map[domain.PlacementID]struct{}
+	seenSnap string
 }
 
 func NewConsumer(cfg ConsumerConfig, sub Subscriber, pub Publisher, store PlacementStore, rebuilder Rebuilder, ids IDGenerator, log *slog.Logger) (*Consumer, error) {
