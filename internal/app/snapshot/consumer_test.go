@@ -74,6 +74,23 @@ func (m *memStore) PutPlacement(_ context.Context, p domain.Placement) error {
 	return nil
 }
 
+func (m *memStore) ListPlacements(_ context.Context) ([]domain.Placement, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]domain.Placement, 0, len(m.data))
+	for _, p := range m.data {
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+func (m *memStore) DeletePlacement(_ context.Context, id domain.PlacementID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.data, id)
+	return nil
+}
+
 func (m *memStore) all() map[domain.PlacementID]domain.Placement {
 	m.mu.Lock()
 	defer m.mu.Unlock()

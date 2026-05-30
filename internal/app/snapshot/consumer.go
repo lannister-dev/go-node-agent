@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,6 +37,10 @@ type Consumer struct {
 	receivedChunks atomic.Uint32
 	syncedItems    atomic.Uint32
 	completed      atomic.Bool
+
+	seenMu    sync.Mutex
+	seenIDs   map[domain.PlacementID]struct{}
+	seenSnap  string
 }
 
 func NewConsumer(cfg ConsumerConfig, sub Subscriber, pub Publisher, store PlacementStore, rebuilder Rebuilder, ids IDGenerator, log *slog.Logger) (*Consumer, error) {
@@ -94,6 +99,7 @@ func (c *Consumer) Handle(ctx context.Context, msg ports.Msg) error {
 		return nil
 	}
 	c.receivedChunks.Add(1)
+	c.trackSeen(chunk.SnapshotID, chunk.Items)
 
 	var persisted atomic.Uint32
 	g, gctx := errgroup.WithContext(ctx)
@@ -128,6 +134,17 @@ func (c *Consumer) Handle(ctx context.Context, msg ports.Msg) error {
 		return nil
 	}
 
+	pruned, err := c.pruneAbsent(ctx, chunk.SnapshotID)
+	if err != nil {
+		return fmt.Errorf("prune after last chunk: %w", err)
+	}
+	if pruned > 0 {
+		c.log.Info("snapshot pruned stale placements",
+			"snapshot_id", chunk.SnapshotID,
+			"pruned", pruned,
+		)
+	}
+
 	if err := c.rebuilder.RebuildFromStore(ctx); err != nil {
 		return fmt.Errorf("rebuild after last chunk: %w", err)
 	}
@@ -136,6 +153,45 @@ func (c *Consumer) Handle(ctx context.Context, msg ports.Msg) error {
 	}
 	c.completed.Store(true)
 	return nil
+}
+
+func (c *Consumer) trackSeen(snapshotID string, items []domain.PlacementCommand) {
+	c.seenMu.Lock()
+	defer c.seenMu.Unlock()
+	if c.seenSnap != snapshotID {
+		c.seenIDs = map[domain.PlacementID]struct{}{}
+		c.seenSnap = snapshotID
+	}
+	for _, cmd := range items {
+		c.seenIDs[cmd.Placement.ID] = struct{}{}
+	}
+}
+
+func (c *Consumer) pruneAbsent(ctx context.Context, snapshotID string) (int, error) {
+	c.seenMu.Lock()
+	seen := c.seenIDs
+	currentSnap := c.seenSnap
+	c.seenIDs = nil
+	c.seenSnap = ""
+	c.seenMu.Unlock()
+	if currentSnap != snapshotID {
+		return 0, nil
+	}
+	all, err := c.store.ListPlacements(ctx)
+	if err != nil {
+		return 0, err
+	}
+	pruned := 0
+	for _, p := range all {
+		if _, ok := seen[p.ID]; ok {
+			continue
+		}
+		if err := c.store.DeletePlacement(ctx, p.ID); err != nil {
+			return pruned, fmt.Errorf("delete absent %s: %w", p.ID, err)
+		}
+		pruned++
+	}
+	return pruned, nil
 }
 
 func (c *Consumer) applyItem(ctx context.Context, cmd domain.PlacementCommand) (bool, error) {
