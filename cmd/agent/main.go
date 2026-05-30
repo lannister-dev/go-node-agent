@@ -16,6 +16,7 @@ import (
 
 	"github.com/lannister-dev/go-node-agent/internal/adapters/badger"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/controlapi"
+	"github.com/lannister-dev/go-node-agent/internal/adapters/entryproxyclient"
 	natsa "github.com/lannister-dev/go-node-agent/internal/adapters/nats"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/singbox"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/wg"
@@ -56,12 +57,13 @@ func main() {
 }
 
 type entryStack struct {
-	executor  applier.Executor
-	listener  *backends.Listener
-	actions   *executor.EntryActions
-	singbox   *singbox.Client
-	registry  *backends.Registry
-	coalescer *executor.RenderCoalescer
+	executor   applier.Executor
+	listener   *backends.Listener
+	actions    reconcile.Rebuilder
+	singbox    *singbox.Client
+	registry   *backends.Registry
+	coalescer  *executor.RenderCoalescer
+	entryProxy *entryproxyclient.Client
 }
 
 type backendStack struct {
@@ -241,8 +243,13 @@ func run() error {
 			}
 		}()
 		appExec = stack.executor
-		healthChecks = append(healthChecks, stack.singbox)
-		log.Info("real executor enabled (entry role)")
+		if stack.singbox != nil {
+			healthChecks = append(healthChecks, stack.singbox)
+		}
+		if stack.entryProxy != nil {
+			healthChecks = append(healthChecks, stack.entryProxy)
+		}
+		log.Info("real executor enabled (entry role)", "embedded_singbox", cfg.SingBoxEmbedded)
 	case cfg.EnableExecutor && strings.EqualFold(cfg.NodeRole, "backend"):
 		backendStack, err = buildBackendStack(cfg, store, log)
 		if err != nil {
@@ -351,8 +358,13 @@ func run() error {
 	var trafficPub *traffic.Publisher
 	if trafficReporter != nil {
 		var connsSrc traffic.ConnectionsSource
-		if stack != nil && stack.singbox != nil {
-			connsSrc = stack.singbox
+		if stack != nil {
+			switch {
+			case stack.singbox != nil:
+				connsSrc = stack.singbox
+			case stack.entryProxy != nil:
+				connsSrc = stack.entryProxy
+			}
 		}
 		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
 			NodeID:   nodeID,
@@ -366,12 +378,21 @@ func run() error {
 	}
 
 	var statsRep *traffic.StatsReporter
-	if stack != nil && stack.singbox != nil && stack.registry != nil {
-		statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
-			NodeID: nodeID,
-		}, natsTr, stack.singbox, stack.registry, log)
-		if err != nil {
-			return err
+	if stack != nil && stack.registry != nil {
+		var statsSrc traffic.ConnectionsSource
+		switch {
+		case stack.singbox != nil:
+			statsSrc = stack.singbox
+		case stack.entryProxy != nil:
+			statsSrc = stack.entryProxy
+		}
+		if statsSrc != nil {
+			statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
+				NodeID: nodeID,
+			}, natsTr, statsSrc, stack.registry, log)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
@@ -441,6 +462,9 @@ func run() error {
 	if stack != nil && stack.coalescer != nil {
 		g.Go(func() error { return stack.coalescer.Run(gctx) })
 	}
+	if stack != nil && stack.entryProxy != nil && stack.actions != nil {
+		g.Go(func() error { return runEntryProxyResync(gctx, stack.entryProxy, stack.actions, log) })
+	}
 
 	log.Info("agent running",
 		"heartbeat_subject", subjects.Heartbeat(nodeID),
@@ -473,6 +497,9 @@ func buildEntryStack(
 	subjects wire.Subjects,
 	log *slog.Logger,
 ) (*entryStack, error) {
+	if cfg.SingBoxEmbedded {
+		return buildEmbeddedEntryStack(cfg, nodeID, store, natsTr, subjects, log)
+	}
 	sb, err := singbox.New(singbox.Options{
 		APIURL:     cfg.SingBoxAPIURL,
 		ConfigPath: cfg.SingBoxConfigPath,
@@ -547,6 +574,90 @@ func buildEntryStack(
 		registry:  reg,
 		coalescer: coalescer,
 	}, nil
+}
+
+// buildEmbeddedEntryStack drives the embedded entry proxy (ADR 0005) over its
+// control socket instead of rendering + reloading an external sing-box.
+func buildEmbeddedEntryStack(
+	cfg config.Config,
+	nodeID domain.NodeID,
+	store *badger.Store,
+	natsTr *natsa.Transport,
+	subjects wire.Subjects,
+	log *slog.Logger,
+) (*entryStack, error) {
+	reg := backends.NewRegistry()
+	proxy := entryproxyclient.New(cfg.EntryProxySocket)
+
+	actions, err := executor.NewEntryProxyActions(proxy, store, reg, log)
+	if err != nil {
+		return nil, err
+	}
+	orch, err := flip.New(actions, log, flip.Options{})
+	if err != nil {
+		return nil, err
+	}
+	flipExec, err := executor.NewFlipExecutor(actions, orch, executor.FlipExecutorOptions{
+		DrainTimeout: cfg.DrainTimeout,
+	}, log)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := backends.NewListener(backends.ListenerConfig{
+		NodeID:  nodeID,
+		Subject: subjects.UpstreamChanged(nodeID),
+		Durable: "agent_" + string(nodeID) + "_upstream",
+		Defaults: backends.Defaults{
+			Port:      cfg.BackendDefaultPort,
+			Transport: domain.TransportKind(cfg.BackendDefaultTransport),
+		},
+	}, natsTr, reg, log)
+	if err != nil {
+		return nil, err
+	}
+
+	return &entryStack{
+		executor:   flipExec,
+		listener:   listener,
+		actions:    actions,
+		registry:   reg,
+		entryProxy: proxy,
+	}, nil
+}
+
+// runEntryProxyResync pushes store state to the embedded proxy on startup and
+// whenever the proxy restarts (its epoch changes), since the proxy holds no
+// state across restarts.
+func runEntryProxyResync(ctx context.Context, proxy *entryproxyclient.Client, rebuilder reconcile.Rebuilder, log *slog.Logger) error {
+	const interval = 5 * time.Second
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	var lastEpoch int64
+	resync := func() {
+		epoch, err := proxy.Epoch(ctx)
+		if err != nil {
+			log.Warn("entry proxy epoch check failed", "err", err)
+			return
+		}
+		if epoch == lastEpoch {
+			return
+		}
+		if err := rebuilder.RebuildFromStore(ctx); err != nil {
+			log.Warn("entry proxy resync failed", "err", err)
+			return
+		}
+		lastEpoch = epoch
+		log.Info("entry proxy resynced from store", "epoch", epoch)
+	}
+	resync()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			resync()
+		}
+	}
 }
 
 func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger) (*backendStack, error) {

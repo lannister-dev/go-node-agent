@@ -141,6 +141,12 @@ func collectActiveUsers(placements []domain.Placement) []vlessUser {
 }
 
 func flowForTransport(t domain.TransportKind) string {
+	return FlowForTransport(t)
+}
+
+// FlowForTransport maps a transport to its VLESS flow (vision on REALITY, none
+// otherwise). Exported for the embedded entry proxy, which sets per-user flow.
+func FlowForTransport(t domain.TransportKind) string {
 	if t == domain.TransportReality {
 		return "xtls-rprx-vision"
 	}

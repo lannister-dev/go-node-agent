@@ -66,3 +66,16 @@ podAnnotations:
 
 wg:
   enabled: true
+
+entryProxy:
+  enabled: true
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: dev
+    pullPolicy: Always
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    realitySecretName: go-node-agent-entry-dev-reality

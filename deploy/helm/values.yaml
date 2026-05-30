@@ -117,6 +117,29 @@ haproxy:
 singbox:
   configHostPath: /var/lib/sing-box-shared
 
+entryProxy:
+  enabled: false
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: ""
+    pullPolicy: IfNotPresent
+  socketDir: /var/run/entry-proxy
+  listenAddr: ":443"
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    # secret with keys: reality_private_key, reality_short_id
+    realitySecretName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
 probes:
   liveness:
     enabled: true

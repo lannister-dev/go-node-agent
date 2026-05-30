@@ -54,6 +54,8 @@ type Config struct {
 	ReconcileInterval time.Duration
 
 	EnableExecutor           bool
+	SingBoxEmbedded          bool
+	EntryProxySocket         string
 	SingBoxInboundTag        string
 	SingBoxListenAddress     string
 	SingBoxListenPort        uint16
@@ -106,6 +108,7 @@ func Load() (Config, error) {
 		LogLevel:                env("LOG_LEVEL", "info"),
 		LogFormat:               env("LOG_FORMAT", "json"),
 
+		EntryProxySocket:         env("ENTRY_PROXY_SOCKET", "/var/run/entry-proxy/control.sock"),
 		SingBoxInboundTag:        env("SINGBOX_INBOUND_TAG", "vless-in"),
 		SingBoxListenAddress:     env("SINGBOX_LISTEN_ADDRESS", "::"),
 		SingBoxLogLevel:          env("SINGBOX_LOG_LEVEL", "info"),
@@ -131,6 +134,7 @@ func Load() (Config, error) {
 		return cfg, err
 	}
 	cfg.EnableExecutor = envBool("ENABLE_EXECUTOR", false)
+	cfg.SingBoxEmbedded = envBool("SINGBOX_EMBEDDED", false)
 	cfg.WgEnabled = envBool("WG_ENABLED", false)
 	cfg.WgInterface = env("WG_INTERFACE", "wg0")
 	cfg.WgKeyDir = env("WG_KEY_DIR", "/var/lib/go-node-agent/wg")

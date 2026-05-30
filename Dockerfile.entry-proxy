@@ -1,0 +1,20 @@
+ARG GO_VERSION=1.26
+ARG TARGETARCH
+
+FROM golang:${GO_VERSION}-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum* ./
+RUN go mod download
+COPY . .
+ARG VERSION=dev
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
+    go build -trimpath -tags with_utls \
+    -ldflags="-s -w" \
+    -o /out/entry-proxy ./cmd/entry-proxy
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=build /out/entry-proxy /entry-proxy
+USER 65532:65532
+EXPOSE 443
+ENTRYPOINT ["/entry-proxy"]
