@@ -360,7 +360,9 @@ type countingWriter struct {
 
 func (c countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
-	c.n.Add(uint64(n))
+	if n > 0 {
+		c.n.Add(uint64(n))
+	}
 	return n, err
 }
 

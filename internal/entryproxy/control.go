@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/entryproxy/api"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
@@ -91,7 +92,7 @@ func (s *ControlServer) Serve(ctx context.Context, socketPath string) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: s.handler()}
+	srv := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 5 * time.Second}
 	go func() {
 		<-ctx.Done()
 		_ = srv.Close()
