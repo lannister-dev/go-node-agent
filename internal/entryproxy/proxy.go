@@ -347,20 +347,27 @@ func (p *Proxy) syncUsersLocked() {
 	p.service.UpdateUsers(ids, ids, flows)
 }
 
-// relay splices the client conn and the backend conn, counting upload
-// (client→backend) and download (backend→client) bytes into stat.
+// relay splices client and backend, counting up/down bytes. One direction
+// ending half-closes its destination (CloseWrite) so the other keeps flowing;
+// a full close on either end would tear down live traffic mid-session.
 func relay(client, backend net.Conn, stat *connStat) {
-	done := make(chan struct{}, 2)
+	var once sync.Once
+	closeBoth := func() { _ = client.Close(); _ = backend.Close() }
+	var wg sync.WaitGroup
+	wg.Add(2)
 	cp := func(dst, src net.Conn, counter *atomic.Uint64) {
+		defer wg.Done()
 		_, _ = io.Copy(countingWriter{dst, counter}, src)
-		_ = dst.Close()
-		_ = src.Close()
-		done <- struct{}{}
+		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		} else {
+			once.Do(closeBoth)
+		}
 	}
 	go cp(backend, client, &stat.up)
 	go cp(client, backend, &stat.down)
-	<-done
-	<-done
+	wg.Wait()
+	closeBoth()
 }
 
 type countingWriter struct {
