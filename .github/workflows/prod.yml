@@ -23,6 +23,7 @@ jobs:
       name: production
     env:
       IMAGE_NAME: go-node-agent
+      IMAGE_NAME_ENTRY_PROXY: entry-proxy
       IMAGE_CHANNEL_TAG: prod
       NAMESPACE: vpn-prod
     steps:
@@ -40,6 +41,8 @@ jobs:
           echo "IMAGE_TAG=${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "IMAGE_REF=${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${GITHUB_SHA::7}" >> "$GITHUB_ENV"
           echo "IMAGE_REF_CHANNEL=${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}:${IMAGE_CHANNEL_TAG}" >> "$GITHUB_ENV"
+          echo "EP_IMAGE_REF=${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME_ENTRY_PROXY}:${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "EP_IMAGE_REF_CHANNEL=${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME_ENTRY_PROXY}:${IMAGE_CHANNEL_TAG}" >> "$GITHUB_ENV"
 
       - name: Build & push image
         uses: docker/build-push-action@v6
@@ -51,6 +54,18 @@ jobs:
           build-args: |
             VERSION=${{ env.IMAGE_TAG }}
             COMMIT=${{ github.sha }}
+          provenance: false
+
+      - name: Build & push entry-proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.entry-proxy
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.EP_IMAGE_REF }},${{ env.EP_IMAGE_REF_CHANNEL }}
+          build-args: |
+            VERSION=${{ env.IMAGE_TAG }}
           provenance: false
 
       - name: Prune buildx cache to save runner disk
@@ -89,5 +104,7 @@ jobs:
             -f deploy/helm/values.entry-prod.yaml \
             --set image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
             --set image.tag="${IMAGE_TAG}" \
+            --set entryProxy.image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME_ENTRY_PROXY}" \
+            --set entryProxy.image.tag="${IMAGE_TAG}" \
             --set "imagePullSecrets[0].name=harbor-registry" \
             --wait --timeout 5m

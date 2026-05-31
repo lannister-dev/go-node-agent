@@ -1,4 +1,4 @@
-# go-node-agent — entry mode, prod
+# go-node-agent — entry mode, prod (embedded VLESS+REALITY proxy)
 #
 # Deploy:
 #   helm upgrade --install go-node-agent-entry-prod deploy/helm/ \
@@ -32,12 +32,14 @@ env:
   natsSnapshotPrefix: prod.agent.snapshots
   natsHeartbeatPrefix: prod.agent.heartbeats
   natsSyncReportPrefix: prod.agent.sync_reports
+  natsNodesTrafficSubject: prod.nodes.traffic
+  natsUsersTrafficSubject: prod.users.traffic
 
 executor:
   enabled: true
   singbox:
     inboundTag: vless-reality-in
-    listenAddress: "0.0.0.0"
+    listenAddress: "::"
     listenPort: 443
     logLevel: info
 
@@ -61,3 +63,19 @@ podAnnotations:
   prometheus-env: prod
   prometheus-app: go-node-agent
   prometheus-role: entry
+
+wg:
+  enabled: true
+
+entryProxy:
+  enabled: true
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: prod
+    pullPolicy: Always
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    realitySecretName: go-node-agent-entry-prod-bootstrap
