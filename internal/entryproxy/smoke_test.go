@@ -138,6 +138,53 @@ func fakeBackend(t *testing.T, userIDs ...string) string {
 	return ln.Addr().String()
 }
 
+func taggedBackend(t *testing.T, tag string, userIDs ...string) string {
+	t.Helper()
+	handler := func(_ context.Context, conn net.Conn, _ adapter.InboundContext, _ N.CloseHandlerFunc) {
+		_, _ = conn.Write([]byte(tag))
+		_ = conn.Close()
+	}
+	svc := vless.NewService[string](logger.NOP(), adapter.NewUpstreamContextHandlerEx(handler, nil))
+	svc.UpdateUsers(userIDs, userIDs, make([]string, len(userIDs)))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				src := M.SocksaddrFromNet(c.RemoteAddr())
+				md := adapter.InboundContext{Source: src}
+				_ = svc.NewConnection(adapter.WithContext(context.Background(), &md), c, src, func(error) {})
+			}()
+		}
+	}()
+	return ln.Addr().String()
+}
+
+func readTag(t *testing.T, conn net.Conn) string {
+	t.Helper()
+	_ = conn.SetDeadline(time.Now().Add(3 * time.Second))
+	if _, err := conn.Write([]byte("ping")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	buf := make([]byte, 8)
+	n, _ := io.ReadFull(conn, buf[:3])
+	return string(buf[:n])
+}
+
+func entryBackend(t *testing.T, id, addr string) ports.EntryBackend {
+	t.Helper()
+	host, portStr, _ := net.SplitHostPort(addr)
+	port, _ := net.LookupPort("tcp", portStr)
+	return ports.EntryBackend{ID: id, Address: host, Port: uint16(port)}
+}
+
 // realityVlessClient connects through the entry proxy as clientID to dst.
 func realityVlessClient(t *testing.T, proxyAddr, pubKey, clientID, dst string) net.Conn {
 	t.Helper()
@@ -182,6 +229,58 @@ func roundtrip(t *testing.T, conn net.Conn, msg string) {
 	}
 	if !bytes.Equal(buf, []byte(msg)) {
 		t.Fatalf("echo mismatch: got %q want %q", buf, msg)
+	}
+}
+
+func TestSmokeRoutingSelectsBackendAndSwitches(t *testing.T) {
+	priv, pub := genRealityKeys(t)
+	target := tlsTarget(t)
+	user := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+
+	be1 := taggedBackend(t, "BE1", user)
+	be2 := taggedBackend(t, "BE2", user)
+
+	targetHost, targetPortStr, _ := net.SplitHostPort(target)
+	targetPort, _ := net.LookupPort("tcp", targetPortStr)
+	p, err := entryproxy.New(entryproxy.Config{
+		ListenAddr:      "127.0.0.1:0",
+		RealityKey:      priv,
+		ShortID:         smokeShortID,
+		ServerName:      smokeServerName,
+		HandshakeServer: targetHost,
+		HandshakePort:   uint16(targetPort),
+	}, nil)
+	if err != nil {
+		t.Fatalf("new proxy: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := p.Start(ctx); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() { _ = p.Close() }()
+
+	if err := p.SetBackends(ctx, []ports.EntryBackend{entryBackend(t, "be1", be1), entryBackend(t, "be2", be2)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.AddUser(ctx, user, userFlow); err != nil {
+		t.Fatal(err)
+	}
+
+	// Route to be2 → traffic must land on BE2.
+	if err := p.SelectBackend(ctx, user, "be2"); err != nil {
+		t.Fatal(err)
+	}
+	if tag := readTag(t, realityVlessClient(t, p.Addr(), pub, user, "1.1.1.1:80")); tag != "BE2" {
+		t.Fatalf("routed to wrong backend: got %q want BE2", tag)
+	}
+
+	// Switch route to be1 → a new connection must land on BE1.
+	if err := p.SelectBackend(ctx, user, "be1"); err != nil {
+		t.Fatal(err)
+	}
+	if tag := readTag(t, realityVlessClient(t, p.Addr(), pub, user, "1.1.1.1:80")); tag != "BE1" {
+		t.Fatalf("route switch failed: got %q want BE1", tag)
 	}
 }
 
