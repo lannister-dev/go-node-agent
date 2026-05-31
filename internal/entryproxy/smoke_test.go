@@ -185,6 +185,24 @@ func roundtrip(t *testing.T, conn net.Conn, msg string) {
 	}
 }
 
+func TestNewResolvesDomainHandshakeServer(t *testing.T) {
+	priv, _ := genRealityKeys(t)
+	// A domain handshake server must be resolved up front — passing it through
+	// makes sing-box's REALITY dialer nil-deref (the bug that broke the deploy).
+	p, err := entryproxy.New(entryproxy.Config{
+		ListenAddr:      "127.0.0.1:0",
+		RealityKey:      priv,
+		ShortID:         smokeShortID,
+		ServerName:      smokeServerName,
+		HandshakeServer: "localhost",
+		HandshakePort:   443,
+	}, nil)
+	if err != nil {
+		t.Fatalf("New with domain handshake server: %v", err)
+	}
+	_ = p
+}
+
 func TestHandshakeTimeoutClosesIdleConn(t *testing.T) {
 	priv, _ := genRealityKeys(t)
 	target := tlsTarget(t)

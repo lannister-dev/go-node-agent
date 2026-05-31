@@ -83,6 +83,16 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if handshakeServer == "" {
 		handshakeServer = cfg.ServerName
 	}
+	// REALITY's handshake dialer resolves a domain via the sing-box service
+	// context, which the lean embed doesn't provide (nil deref). Resolve to an
+	// IP up front; the SNI stays the domain via ServerName.
+	if net.ParseIP(handshakeServer) == nil {
+		addrs, rerr := net.DefaultResolver.LookupHost(context.Background(), handshakeServer)
+		if rerr != nil || len(addrs) == 0 {
+			return nil, fmt.Errorf("entryproxy: resolve handshake server %q: %w", handshakeServer, rerr)
+		}
+		handshakeServer = addrs[0]
+	}
 	handshakePort := cfg.HandshakePort
 	if handshakePort == 0 {
 		handshakePort = 443
