@@ -114,6 +114,10 @@ haproxy:
   socketHostPath: /var/run/haproxy
   socketName: admin.sock
 
+# client_ids of the probe/monitoring agent, excluded from user counters
+probe:
+  clientIDs: []
+
 singbox:
   configHostPath: /var/lib/sing-box-shared
 

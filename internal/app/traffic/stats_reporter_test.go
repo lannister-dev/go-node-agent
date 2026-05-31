@@ -90,6 +90,43 @@ func TestStatsReporter_AggregatesByBackendAndClient(t *testing.T) {
 	}
 }
 
+func TestStatsReporter_ExcludesProbe(t *testing.T) {
+	const (
+		nodeID = "11111111-1111-1111-1111-111111111111"
+		user   = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+		probe  = "99999999-9999-9999-9999-999999999999"
+		bA     = "44444444-4444-4444-4444-444444444444"
+	)
+	conns := &fakeConns{snaps: []ports.SingBoxConnections{
+		{Conns: []ports.SingBoxConn{
+			{ID: "c1", Chains: []string{"b-" + user + "-" + bA}},
+			{ID: "c2", Chains: []string{"b-" + probe + "-" + bA}},
+		}},
+	}}
+	kv := &kvCapture{}
+	registry := &fakeBackends{names: map[string]string{bA: "alpha-backend-01"}}
+	r, err := NewStatsReporter(StatsReporterConfig{NodeID: nodeID, ProbeClientIDs: []string{probe}}, kv, conns, registry, silentLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var p statsPayload
+	if err := json.Unmarshal(kv.entries[StatsKvBucket+"/node."+nodeID], &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.Total != 1 {
+		t.Errorf("total=%d want 1 (probe excluded)", p.Total)
+	}
+	if _, ok := p.ByClientID[probe]; ok {
+		t.Errorf("probe must not appear in by_client_id: %+v", p.ByClientID)
+	}
+	if p.UniqueUsers != 1 || p.ByClientID[user] != 1 {
+		t.Errorf("real user miscounted: unique=%d byClient=%+v", p.UniqueUsers, p.ByClientID)
+	}
+}
+
 func TestAggregatedBackendTag(t *testing.T) {
 	const (
 		u = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

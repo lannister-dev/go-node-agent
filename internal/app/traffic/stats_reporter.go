@@ -32,9 +32,10 @@ type BackendNameResolver interface {
 }
 
 type StatsReporterConfig struct {
-	NodeID   domain.NodeID
-	Bucket   string
-	Interval time.Duration
+	NodeID         domain.NodeID
+	Bucket         string
+	Interval       time.Duration
+	ProbeClientIDs []string
 }
 
 type StatsReporter struct {
@@ -42,6 +43,7 @@ type StatsReporter struct {
 	kv       KVPutter
 	conns    ConnectionsSource
 	backends BackendNameResolver
+	probe    map[string]struct{}
 	log      *slog.Logger
 }
 
@@ -66,6 +68,7 @@ func NewStatsReporter(cfg StatsReporterConfig, kv KVPutter, conns ConnectionsSou
 		kv:       kv,
 		conns:    conns,
 		backends: backends,
+		probe:    idSet(cfg.ProbeClientIDs),
 		log:      log.With("component", "stats-reporter"),
 	}, nil
 }
@@ -111,11 +114,16 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	}
 	byBackend := map[string]int{}
 	byClient := map[string]int{}
+	total := 0
 	for _, c := range snap.Conns {
-		tag := r.aggregatedBackendTag(c.Chains)
-		byBackend[tag]++
 		// Best-effort: parsed user is the first b-<uuid>-... in chains.
-		if u, _, ok := pickClientAndBackend(c.Chains); ok && u != "" {
+		u, _, ok := pickClientAndBackend(c.Chains)
+		if _, isProbe := r.probe[u]; isProbe {
+			continue
+		}
+		total++
+		byBackend[r.aggregatedBackendTag(c.Chains)]++
+		if ok && u != "" {
 			byClient[u]++
 		}
 	}
@@ -123,7 +131,7 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	payload := statsPayload{
 		NodeID:      string(r.cfg.NodeID),
 		Ts:          time.Now().UTC().Format(time.RFC3339Nano),
-		Total:       len(snap.Conns),
+		Total:       total,
 		ByBackend:   byBackend,
 		ByClientID:  byClient,
 		UniqueUsers: len(byClient),

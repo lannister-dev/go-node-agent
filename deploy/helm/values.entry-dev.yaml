@@ -79,3 +79,8 @@ entryProxy:
     handshakePort: 443
   secrets:
     realitySecretName: go-node-agent-entry-dev-reality
+
+probe:
+  clientIDs:
+    - 8add00c8-f944-4a7b-9839-e39c5eabdb6b
+    - d0f7952d-7b4b-4478-9e7b-02915fe734f1

@@ -134,6 +134,7 @@ func Load() (Config, error) {
 	if cfg.BandwidthCapacityMbps, err = envU16("BANDWIDTH_CAPACITY_MBPS", 0); err != nil {
 		return cfg, err
 	}
+	cfg.ProbeClientIDs = envList("PROBE_CLIENT_IDS")
 	cfg.EnableExecutor = envBool("ENABLE_EXECUTOR", false)
 	cfg.SingBoxEmbedded = envBool("SINGBOX_EMBEDDED", false)
 	cfg.WgEnabled = envBool("WG_ENABLED", false)
@@ -223,6 +224,21 @@ func envU16(key string, fallback uint16) (uint16, error) {
 		return 0, fmt.Errorf("%s: %w", key, err)
 	}
 	return uint16(n), nil
+}
+
+func envList(key string) []string {
+	v, ok := os.LookupEnv(key)
+	if !ok || v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 func envBool(key string, fallback bool) bool {

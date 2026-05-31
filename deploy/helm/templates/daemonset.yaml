@@ -158,6 +158,10 @@ spec:
               value: {{ .Values.singbox.configPath | default "/var/lib/sing-box-shared/config.json" | quote }}
             - name: ENABLE_EXECUTOR
               value: {{ .Values.executor.enabled | quote }}
+            {{- with .Values.probe.clientIDs }}
+            - name: PROBE_CLIENT_IDS
+              value: {{ join "," . | quote }}
+            {{- end }}
             - name: SINGBOX_INBOUND_TAG
               value: {{ .Values.executor.singbox.inboundTag | quote }}
             - name: SINGBOX_LISTEN_ADDRESS

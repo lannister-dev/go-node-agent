@@ -388,7 +388,8 @@ func run() error {
 		}
 		if statsSrc != nil {
 			statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
-				NodeID: nodeID,
+				NodeID:         nodeID,
+				ProbeClientIDs: cfg.ProbeClientIDs,
 			}, natsTr, statsSrc, stack.registry, log)
 			if err != nil {
 				return err
@@ -403,6 +404,7 @@ func run() error {
 			NodeTrafficSubject: cfg.NATSNodesTrafficSubject,
 			UserTrafficSubject: cfg.NATSUsersTrafficSubject,
 			Interval:           cfg.TrafficInterval,
+			ProbeClientIDs:     cfg.ProbeClientIDs,
 		}, natsTr, natsTr, backendStack.xray, log)
 		if err != nil {
 			return err

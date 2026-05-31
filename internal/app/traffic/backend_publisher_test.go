@@ -95,6 +95,59 @@ func TestBackendPublisher_AggregatesPerUserAndNodeTotal(t *testing.T) {
 	}
 }
 
+func TestBackendPublisher_ExcludesProbe(t *testing.T) {
+	const (
+		backendID = "44444444-4444-4444-4444-444444444444"
+		user      = "user-real"
+		probe     = "user-probe"
+	)
+	stats := &fakeXrayStats{snaps: [][]xray.UserStat{{
+		{ClientID: user, Link: "uplink", Value: 100},
+		{ClientID: user, Link: "downlink", Value: 200},
+		{ClientID: probe, Link: "uplink", Value: 999},
+		{ClientID: probe, Link: "downlink", Value: 999},
+	}}}
+	pub := &fakePub{}
+	kv := &kvCapture{}
+	p, err := NewBackendPublisher(BackendPublisherConfig{
+		NodeID:             backendID,
+		NodeTrafficSubject: "nodes.traffic",
+		UserTrafficSubject: "users.traffic",
+		ProbeClientIDs:     []string{probe},
+	}, pub, kv, stats, silentLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range pub.msgs {
+		if m.subject == "nodes.traffic" {
+			var nm []nodeTrafficPayload
+			_ = json.Unmarshal(m.data, &nm)
+			if nm[0].BytesIn != 100 || nm[0].BytesOut != 200 {
+				t.Errorf("probe leaked into node totals: %+v", nm[0])
+			}
+		}
+		if m.subject == "users.traffic" {
+			var um []userTrafficDelta
+			_ = json.Unmarshal(m.data, &um)
+			if len(um) != 1 || um[0].Identifier != user {
+				t.Errorf("probe leaked into user deltas: %+v", um)
+			}
+		}
+	}
+	var live backendLivePayload
+	if err := json.Unmarshal(kv.entries[StatsKvBucket+"/backend."+backendID], &live); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range live.ActiveClientIDs {
+		if id == probe {
+			t.Errorf("probe leaked into active client ids: %+v", live.ActiveClientIDs)
+		}
+	}
+}
+
 func TestBackendPublisher_NoPublishOnEmpty(t *testing.T) {
 	stats := &fakeXrayStats{snaps: [][]xray.UserStat{{}}}
 	pub := &fakePub{}

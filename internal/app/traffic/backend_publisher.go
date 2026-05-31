@@ -25,6 +25,7 @@ type BackendPublisherConfig struct {
 	UserTrafficSubject string
 	LiveStatsBucket    string
 	Interval           time.Duration
+	ProbeClientIDs     []string
 }
 
 type BackendPublisher struct {
@@ -32,6 +33,7 @@ type BackendPublisher struct {
 	pub   ports.Publisher
 	kv    KVPutter
 	stats XrayStatsSource
+	probe map[string]struct{}
 	log   *slog.Logger
 }
 
@@ -59,8 +61,20 @@ func NewBackendPublisher(cfg BackendPublisherConfig, pub ports.Publisher, kv KVP
 		pub:   pub,
 		kv:    kv,
 		stats: stats,
+		probe: idSet(cfg.ProbeClientIDs),
 		log:   log.With("component", "backend-traffic-publisher"),
 	}, nil
+}
+
+func idSet(ids []string) map[string]struct{} {
+	if len(ids) == 0 {
+		return nil
+	}
+	m := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		m[id] = struct{}{}
+	}
+	return m
 }
 
 const backendStatsKeyPrefix = "backend."
@@ -146,6 +160,9 @@ func (p *BackendPublisher) tick(ctx context.Context) error {
 	deltas := make([]userTrafficDelta, 0, len(users))
 	activeIDs := make([]string, 0, len(users))
 	for clientID, u := range users {
+		if _, isProbe := p.probe[clientID]; isProbe {
+			continue
+		}
 		total := u.up + u.down
 		if total == 0 {
 			continue
