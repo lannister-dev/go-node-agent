@@ -155,6 +155,12 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 		if p.Desired != domain.DesiredActive || p.IsRevoked || p.ClientID == "" {
 			continue
 		}
+		// The backend registry fills asynchronously from NATS; skip a placement
+		// whose backend isn't known yet — a later resync picks it up.
+		if _, ok := a.backends.Get(p.BackendNodeID); !ok {
+			a.log.Warn("rebuild: backend not in registry, skipping placement", "client_id", p.ClientID, "backend", p.BackendNodeID)
+			continue
+		}
 		if err := a.proxy.AddUser(ctx, string(p.ClientID), singboxgen.FlowForTransport(p.Transport)); err != nil {
 			return fmt.Errorf("rebuild: add user %s: %w", p.ClientID, err)
 		}

@@ -258,8 +258,8 @@ spec:
           image: "{{ .Values.entryProxy.image.repository }}:{{ .Values.entryProxy.image.tag | default (include "go-node-agent.imageTag" .) }}"
           imagePullPolicy: {{ .Values.entryProxy.image.pullPolicy }}
           securityContext:
-            runAsNonRoot: true
-            runAsUser: 65532
+            runAsNonRoot: false
+            runAsUser: 0
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
