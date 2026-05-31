@@ -109,14 +109,24 @@ func TestProxyActions_SimpleApplyInactiveRemoves(t *testing.T) {
 	}
 }
 
-func TestProxyActions_SimpleApplyUnknownBackendFails(t *testing.T) {
-	a := newProxyActions(t, newFakeProxy(), newMemStore())
+func TestProxyActions_SimpleApplyUnknownBackendDefersRoute(t *testing.T) {
+	proxy := newFakeProxy()
+	a := newProxyActions(t, proxy, newMemStore())
 	err := a.SimpleApply(context.Background(), domain.Placement{
 		ID: "p1", ClientID: "user-a", BackendNodeID: "nope",
-		Desired: domain.DesiredActive, OpVersion: 1,
+		Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 1,
 	})
-	if err == nil {
-		t.Fatal("expected error for unknown backend")
+	if err != nil {
+		t.Fatalf("SimpleApply: %v", err)
+	}
+	if proxy.added["user-a"] != "xtls-rprx-vision" {
+		t.Fatalf("user must be authenticated even when backend unknown: %v", proxy.added)
+	}
+	if _, ok := proxy.route["user-a"]; ok {
+		t.Fatalf("route must be deferred for unknown backend: %v", proxy.route)
+	}
+	if !a.HasPending() {
+		t.Fatal("expected HasPending after deferred route")
 	}
 }
 
@@ -176,6 +186,44 @@ func TestProxyActions_RebuildFromStorePushesState(t *testing.T) {
 	}
 	if proxy.route["user-a"] != "latvia-01" {
 		t.Fatalf("active user route wrong: %q", proxy.route["user-a"])
+	}
+}
+
+func TestProxyActions_RebuildMultiPlacementDeterministicRoute(t *testing.T) {
+	proxy := newFakeProxy()
+	store := newMemStore(
+		domain.Placement{ID: "p-old", ClientID: "user-a", BackendNodeID: "latvia-01", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 1},
+		domain.Placement{ID: "p-new", ClientID: "user-a", BackendNodeID: "praha-02", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 2},
+	)
+	a := newProxyActions(t, proxy, store)
+	if err := a.RebuildFromStore(context.Background()); err != nil {
+		t.Fatalf("RebuildFromStore: %v", err)
+	}
+	if proxy.route["user-a"] != "praha-02" {
+		t.Fatalf("expected highest-opversion backend, got %q", proxy.route["user-a"])
+	}
+	if a.HasPending() {
+		t.Fatal("nothing should be pending")
+	}
+}
+
+func TestProxyActions_RebuildAddsUserAndDefersUnknownBackend(t *testing.T) {
+	proxy := newFakeProxy()
+	store := newMemStore(
+		domain.Placement{ID: "p1", ClientID: "user-a", BackendNodeID: "zrh-not-yet", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 1},
+	)
+	a := newProxyActions(t, proxy, store)
+	if err := a.RebuildFromStore(context.Background()); err != nil {
+		t.Fatalf("RebuildFromStore: %v", err)
+	}
+	if proxy.added["user-a"] != "xtls-rprx-vision" {
+		t.Fatalf("user must be authenticated even when backend unknown: %v", proxy.added)
+	}
+	if _, ok := proxy.route["user-a"]; ok {
+		t.Fatalf("route must be deferred: %v", proxy.route)
+	}
+	if !a.HasPending() {
+		t.Fatal("expected HasPending for deferred route")
 	}
 }
 

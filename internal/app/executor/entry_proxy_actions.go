@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
@@ -23,7 +24,10 @@ type EntryProxyActions struct {
 	store    PlacementStore
 	backends BackendLookup
 	log      *slog.Logger
+	pending  atomic.Bool
 }
+
+func (a *EntryProxyActions) HasPending() bool { return a.pending.Load() }
 
 func NewEntryProxyActions(proxy ports.EntryProxy, store PlacementStore, backends BackendLookup, log *slog.Logger) (*EntryProxyActions, error) {
 	if proxy == nil || store == nil || backends == nil {
@@ -116,17 +120,19 @@ func (a *EntryProxyActions) SimpleApply(ctx context.Context, desired domain.Plac
 	desired.LastAppliedAt = time.Now().UTC()
 
 	if desired.Desired == domain.DesiredActive && !desired.IsRevoked {
-		if _, ok := a.backends.Get(desired.BackendNodeID); !ok {
-			return fmt.Errorf("simple-apply: backend %s not in registry", desired.BackendNodeID)
-		}
 		if err := a.SyncBackends(ctx); err != nil {
 			return err
 		}
 		if err := a.proxy.AddUser(ctx, string(desired.ClientID), singboxgen.FlowForTransport(desired.Transport)); err != nil {
 			return fmt.Errorf("simple-apply: add user: %w", err)
 		}
-		if err := a.proxy.SelectBackend(ctx, string(desired.ClientID), string(desired.BackendNodeID)); err != nil {
-			return fmt.Errorf("simple-apply: select backend: %w", err)
+		if _, ok := a.backends.Get(desired.BackendNodeID); ok {
+			if err := a.proxy.SelectBackend(ctx, string(desired.ClientID), string(desired.BackendNodeID)); err != nil {
+				return fmt.Errorf("simple-apply: select backend: %w", err)
+			}
+		} else {
+			a.pending.Store(true)
+			a.log.Warn("simple-apply: backend not in registry, route deferred", "client_id", desired.ClientID, "backend", desired.BackendNodeID)
 		}
 	} else {
 		if err := a.proxy.RemoveUser(ctx, string(desired.ClientID)); err != nil {
@@ -151,25 +157,57 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("rebuild: list placements: %w", err)
 	}
+	byUser := map[domain.ClientID][]domain.Placement{}
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive || p.IsRevoked || p.ClientID == "" {
 			continue
 		}
-		// The backend registry fills asynchronously from NATS; skip a placement
-		// whose backend isn't known yet — a later resync picks it up.
-		if _, ok := a.backends.Get(p.BackendNodeID); !ok {
-			a.log.Warn("rebuild: backend not in registry, skipping placement", "client_id", p.ClientID, "backend", p.BackendNodeID)
+		byUser[p.ClientID] = append(byUser[p.ClientID], p)
+	}
+	pending := false
+	for clientID, cands := range byUser {
+		if err := a.proxy.AddUser(ctx, string(clientID), singboxgen.FlowForTransport(cands[0].Transport)); err != nil {
+			return fmt.Errorf("rebuild: add user %s: %w", clientID, err)
+		}
+		backend, ok := a.pickBackend(cands)
+		if !ok {
+			pending = true
+			a.log.Warn("rebuild: no known backend for user yet, route deferred", "client_id", clientID)
 			continue
 		}
-		if err := a.proxy.AddUser(ctx, string(p.ClientID), singboxgen.FlowForTransport(p.Transport)); err != nil {
-			return fmt.Errorf("rebuild: add user %s: %w", p.ClientID, err)
-		}
-		if err := a.proxy.SelectBackend(ctx, string(p.ClientID), string(p.BackendNodeID)); err != nil {
-			return fmt.Errorf("rebuild: select backend for %s: %w", p.ClientID, err)
+		if err := a.proxy.SelectBackend(ctx, string(clientID), string(backend)); err != nil {
+			return fmt.Errorf("rebuild: select backend for %s: %w", clientID, err)
 		}
 	}
-	a.log.Info("entry proxy rebuilt from store", "placements", len(placements))
+	a.pending.Store(pending)
+	a.log.Info("entry proxy rebuilt from store", "users", len(byUser), "pending", pending)
 	return nil
+}
+
+func (a *EntryProxyActions) pickBackend(cands []domain.Placement) (domain.BackendID, bool) {
+	var best *domain.Placement
+	for i := range cands {
+		if _, ok := a.backends.Get(cands[i].BackendNodeID); !ok {
+			continue
+		}
+		if best == nil || moreRecentPlacement(cands[i], *best) {
+			best = &cands[i]
+		}
+	}
+	if best == nil {
+		return "", false
+	}
+	return best.BackendNodeID, true
+}
+
+func moreRecentPlacement(a, b domain.Placement) bool {
+	if a.OpVersion != b.OpVersion {
+		return a.OpVersion > b.OpVersion
+	}
+	if !a.LastAppliedAt.Equal(b.LastAppliedAt) {
+		return a.LastAppliedAt.After(b.LastAppliedAt)
+	}
+	return a.BackendNodeID > b.BackendNodeID
 }
 
 // SyncBackends pushes the current backend registry to the proxy pool.

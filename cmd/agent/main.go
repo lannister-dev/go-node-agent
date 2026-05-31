@@ -639,7 +639,11 @@ func runEntryProxyResync(ctx context.Context, proxy *entryproxyclient.Client, re
 			log.Warn("entry proxy epoch check failed", "err", err)
 			return
 		}
-		if epoch == lastEpoch {
+		pending := false
+		if hp, ok := rebuilder.(interface{ HasPending() bool }); ok {
+			pending = hp.HasPending()
+		}
+		if epoch == lastEpoch && !pending {
 			return
 		}
 		if err := rebuilder.RebuildFromStore(ctx); err != nil {
