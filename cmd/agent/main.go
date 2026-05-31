@@ -346,7 +346,7 @@ func run() error {
 	}
 
 	var trafficReporter *traffic.Reporter
-	if stack != nil {
+	if stack != nil && stack.singbox != nil {
 		trafficReporter, err = traffic.New(traffic.Config{
 			SingBoxAPIURL: cfg.SingBoxAPIURL,
 		}, log)
