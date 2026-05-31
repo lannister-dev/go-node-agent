@@ -49,6 +49,7 @@ type Config struct {
 
 	HeartbeatInterval time.Duration
 	TrafficInterval   time.Duration
+	ProbeClientIDs    []string
 	DrainTimeout      time.Duration
 	SnapshotInterval  time.Duration
 	ReconcileInterval time.Duration

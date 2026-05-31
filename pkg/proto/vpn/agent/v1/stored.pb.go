@@ -23,23 +23,24 @@ const (
 )
 
 type StoredPlacement struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	KeyId         string                 `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
-	ClientId      string                 `protobuf:"bytes,3,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
-	NodeId        string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	BackendNodeId string                 `protobuf:"bytes,5,opt,name=backend_node_id,json=backendNodeId,proto3" json:"backend_node_id,omitempty"`
-	OpVersion     uint64                 `protobuf:"varint,6,opt,name=op_version,json=opVersion,proto3" json:"op_version,omitempty"`
-	DesiredState  DesiredState           `protobuf:"varint,7,opt,name=desired_state,json=desiredState,proto3,enum=vpn.agent.v1.DesiredState" json:"desired_state,omitempty"`
-	AppliedState  AppliedState           `protobuf:"varint,8,opt,name=applied_state,json=appliedState,proto3,enum=vpn.agent.v1.AppliedState" json:"applied_state,omitempty"`
-	Transport     TransportKind          `protobuf:"varint,9,opt,name=transport,proto3,enum=vpn.agent.v1.TransportKind" json:"transport,omitempty"`
-	Protocol      Protocol               `protobuf:"varint,10,opt,name=protocol,proto3,enum=vpn.agent.v1.Protocol" json:"protocol,omitempty"`
-	IsRevoked     bool                   `protobuf:"varint,11,opt,name=is_revoked,json=isRevoked,proto3" json:"is_revoked,omitempty"`
-	ValidUntil    *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=valid_until,json=validUntil,proto3,oneof" json:"valid_until,omitempty"`
-	UpdatedAt     *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3,oneof" json:"updated_at,omitempty"`
-	LastAppliedAt *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_applied_at,json=lastAppliedAt,proto3,oneof" json:"last_applied_at,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	Id               string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	KeyId            string                 `protobuf:"bytes,2,opt,name=key_id,json=keyId,proto3" json:"key_id,omitempty"`
+	ClientId         string                 `protobuf:"bytes,3,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`
+	NodeId           string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	BackendNodeId    string                 `protobuf:"bytes,5,opt,name=backend_node_id,json=backendNodeId,proto3" json:"backend_node_id,omitempty"`
+	OpVersion        uint64                 `protobuf:"varint,6,opt,name=op_version,json=opVersion,proto3" json:"op_version,omitempty"`
+	DesiredState     DesiredState           `protobuf:"varint,7,opt,name=desired_state,json=desiredState,proto3,enum=vpn.agent.v1.DesiredState" json:"desired_state,omitempty"`
+	AppliedState     AppliedState           `protobuf:"varint,8,opt,name=applied_state,json=appliedState,proto3,enum=vpn.agent.v1.AppliedState" json:"applied_state,omitempty"`
+	Transport        TransportKind          `protobuf:"varint,9,opt,name=transport,proto3,enum=vpn.agent.v1.TransportKind" json:"transport,omitempty"`
+	Protocol         Protocol               `protobuf:"varint,10,opt,name=protocol,proto3,enum=vpn.agent.v1.Protocol" json:"protocol,omitempty"`
+	IsRevoked        bool                   `protobuf:"varint,11,opt,name=is_revoked,json=isRevoked,proto3" json:"is_revoked,omitempty"`
+	ValidUntil       *timestamppb.Timestamp `protobuf:"bytes,12,opt,name=valid_until,json=validUntil,proto3,oneof" json:"valid_until,omitempty"`
+	UpdatedAt        *timestamppb.Timestamp `protobuf:"bytes,13,opt,name=updated_at,json=updatedAt,proto3,oneof" json:"updated_at,omitempty"`
+	LastAppliedAt    *timestamppb.Timestamp `protobuf:"bytes,14,opt,name=last_applied_at,json=lastAppliedAt,proto3,oneof" json:"last_applied_at,omitempty"`
+	EntryOverrideTag string                 `protobuf:"bytes,15,opt,name=entry_override_tag,json=entryOverrideTag,proto3" json:"entry_override_tag,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *StoredPlacement) Reset() {
@@ -170,6 +171,13 @@ func (x *StoredPlacement) GetLastAppliedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+func (x *StoredPlacement) GetEntryOverrideTag() string {
+	if x != nil {
+		return x.EntryOverrideTag
+	}
+	return ""
+}
+
 type StoredIdentity struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	NodeId          string                 `protobuf:"bytes,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
@@ -242,7 +250,7 @@ var File_vpn_agent_v1_stored_proto protoreflect.FileDescriptor
 
 const file_vpn_agent_v1_stored_proto_rawDesc = "" +
 	"\n" +
-	"\x19vpn/agent/v1/stored.proto\x12\fvpn.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18vpn/agent/v1/agent.proto\"\xc3\x05\n" +
+	"\x19vpn/agent/v1/stored.proto\x12\fvpn.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18vpn/agent/v1/agent.proto\"\xf1\x05\n" +
 	"\x0fStoredPlacement\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x15\n" +
 	"\x06key_id\x18\x02 \x01(\tR\x05keyId\x12\x1b\n" +
@@ -262,7 +270,8 @@ const file_vpn_agent_v1_stored_proto_rawDesc = "" +
 	"validUntil\x88\x01\x01\x12>\n" +
 	"\n" +
 	"updated_at\x18\r \x01(\v2\x1a.google.protobuf.TimestampH\x01R\tupdatedAt\x88\x01\x01\x12G\n" +
-	"\x0flast_applied_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x02R\rlastAppliedAt\x88\x01\x01B\x0e\n" +
+	"\x0flast_applied_at\x18\x0e \x01(\v2\x1a.google.protobuf.TimestampH\x02R\rlastAppliedAt\x88\x01\x01\x12,\n" +
+	"\x12entry_override_tag\x18\x0f \x01(\tR\x10entryOverrideTagB\x0e\n" +
 	"\f_valid_untilB\r\n" +
 	"\v_updated_atB\x12\n" +
 	"\x10_last_applied_at\"\xb9\x01\n" +

@@ -28,6 +28,7 @@ type placementCommandDTO struct {
 	SnapshotComplete bool    `json:"snapshot_complete"`
 	ValidUntil       *string `json:"valid_until,omitempty"`
 	UpdatedAt        *string `json:"updated_at,omitempty"`
+	EntryOverrideTag *string `json:"entry_routing_override_backend_tag,omitempty"`
 }
 
 func PlacementIDFromCommandEvent(data []byte) (string, error) {
@@ -92,6 +93,9 @@ func UnmarshalPlacementCommandEvent(data []byte) (domain.PlacementCommand, error
 			ValidUntil:    validUntil,
 			UpdatedAt:     updatedAt,
 		},
+	}
+	if dto.EntryOverrideTag != nil {
+		cmd.Placement.EntryOverrideTag = *dto.EntryOverrideTag
 	}
 	if dto.SnapshotID != nil {
 		cmd.SnapshotID = *dto.SnapshotID

@@ -20,6 +20,7 @@ message StoredPlacement {
   optional google.protobuf.Timestamp valid_until = 12;
   optional google.protobuf.Timestamp updated_at = 13;
   optional google.protobuf.Timestamp last_applied_at = 14;
+  string entry_override_tag = 15;
 }
 
 message StoredIdentity {

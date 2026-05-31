@@ -185,10 +185,15 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 }
 
 func (a *EntryProxyActions) pickBackend(cands []domain.Placement) (domain.BackendID, bool) {
+	overrideTag := cands[0].EntryOverrideTag
 	var best *domain.Placement
 	for i := range cands {
-		if _, ok := a.backends.Get(cands[i].BackendNodeID); !ok {
+		spec, ok := a.backends.Get(cands[i].BackendNodeID)
+		if !ok {
 			continue
+		}
+		if overrideTag != "" && "backend-"+spec.Name == overrideTag {
+			return cands[i].BackendNodeID, true
 		}
 		if best == nil || moreRecentPlacement(cands[i], *best) {
 			best = &cands[i]

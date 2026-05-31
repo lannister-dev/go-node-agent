@@ -7,6 +7,7 @@ import (
 
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
+	"github.com/lannister-dev/go-node-agent/internal/wire/singboxgen"
 )
 
 type fakeEntryProxy struct {
@@ -204,6 +205,28 @@ func TestProxyActions_RebuildMultiPlacementDeterministicRoute(t *testing.T) {
 	}
 	if a.HasPending() {
 		t.Fatal("nothing should be pending")
+	}
+}
+
+func TestProxyActions_RebuildHonorsEntryOverride(t *testing.T) {
+	proxy := newFakeProxy()
+	reg := NewStaticBackends([]singboxgen.BackendSpec{
+		{ID: "rix-backend-01", Name: "rix-backend-01", Address: "10.0.0.1", Port: 9000},
+		{ID: "zrh-backend-01", Name: "zrh-backend-01", Address: "10.0.0.2", Port: 9000},
+	})
+	store := newMemStore(
+		domain.Placement{ID: "p-zrh", ClientID: "user-a", BackendNodeID: "zrh-backend-01", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 114, EntryOverrideTag: "backend-rix-backend-01"},
+		domain.Placement{ID: "p-rix", ClientID: "user-a", BackendNodeID: "rix-backend-01", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 27, EntryOverrideTag: "backend-rix-backend-01"},
+	)
+	a, err := NewEntryProxyActions(proxy, store, reg, silent())
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if err := a.RebuildFromStore(context.Background()); err != nil {
+		t.Fatalf("RebuildFromStore: %v", err)
+	}
+	if proxy.route["user-a"] != "rix-backend-01" {
+		t.Fatalf("override must win over higher opv: got %q want rix-backend-01", proxy.route["user-a"])
 	}
 }
 
