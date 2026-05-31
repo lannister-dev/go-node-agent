@@ -11,6 +11,7 @@ import (
 type SingBoxControl interface {
 	WriteConfig(ctx context.Context, cfg ports.SingBoxConfig) error
 	Reload(ctx context.Context) error
+	SelectOutbound(ctx context.Context, selectorTag, target string) error
 	Connections(ctx context.Context) (ports.SingBoxConnections, error)
 }
 

@@ -81,3 +81,32 @@ func (c *Client) Reload(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (c *Client) SelectOutbound(ctx context.Context, selectorTag, target string) error {
+	if selectorTag == "" || target == "" {
+		return errors.New("singbox: selector and target required")
+	}
+	body, err := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: target})
+	if err != nil {
+		return fmt.Errorf("singbox: marshal selector body: %w", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.url("/proxies/"+selectorTag), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("singbox: build selector request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	c.authorize(req)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("singbox: select outbound request: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	if resp.StatusCode >= 400 {
+		return fmt.Errorf("singbox: select outbound status=%d body=%s", resp.StatusCode, string(respBody))
+	}
+	return nil
+}

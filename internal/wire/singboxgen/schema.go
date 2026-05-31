@@ -33,16 +33,22 @@ type inbound struct {
 }
 
 type vlessUser struct {
+	Name string `json:"name"`
 	UUID string `json:"uuid"`
 	Flow string `json:"flow,omitempty"`
 }
 
 type outbound struct {
-	Type       string     `json:"type"`
-	Tag        string     `json:"tag"`
-	Server     string     `json:"server,omitempty"`
-	ServerPort uint16     `json:"server_port,omitempty"`
-	TLS        *tlsConfig `json:"tls,omitempty"`
+	Type                      string     `json:"type"`
+	Tag                       string     `json:"tag"`
+	Server                    string     `json:"server,omitempty"`
+	ServerPort                uint16     `json:"server_port,omitempty"`
+	UUID                      string     `json:"uuid,omitempty"`
+	Flow                      string     `json:"flow,omitempty"`
+	TLS                       *tlsConfig `json:"tls,omitempty"`
+	Outbounds                 []string   `json:"outbounds,omitempty"`
+	Default                   string     `json:"default,omitempty"`
+	InterruptExistConnections bool       `json:"interrupt_exist_connections,omitempty"`
 }
 
 type tlsConfig struct {
@@ -70,6 +76,6 @@ type routeConfig struct {
 }
 
 type routeRule struct {
-	User     []string `json:"user,omitempty"`
+	AuthUser []string `json:"auth_user,omitempty"`
 	Outbound string   `json:"outbound"`
 }

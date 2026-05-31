@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -29,6 +30,8 @@ type RenderCoalescer struct {
 	debounce time.Duration
 	maxBatch int
 	log      *slog.Logger
+	lastHash [32]byte
+	hasHash  bool
 }
 
 func NewRenderCoalescer(a *EntryActions, opts CoalescerOptions, log *slog.Logger) (*RenderCoalescer, error) {
@@ -153,11 +156,19 @@ func (c *RenderCoalescer) flushBatch(ctx context.Context, overlays map[domain.Pl
 	if err != nil {
 		return fmt.Errorf("coalescer: render: %w", err)
 	}
-	if err := a.singbox.WriteConfig(ctx, ports.SingBoxConfig{Raw: data}); err != nil {
-		return fmt.Errorf("coalescer: write config: %w", err)
-	}
-	if err := a.singbox.Reload(ctx); err != nil {
-		return fmt.Errorf("coalescer: reload: %w", err)
+	hash := sha256.Sum256(data)
+	skipReload := c.hasHash && hash == c.lastHash
+	if !skipReload {
+		if err := a.singbox.WriteConfig(ctx, ports.SingBoxConfig{Raw: data}); err != nil {
+			return fmt.Errorf("coalescer: write config: %w", err)
+		}
+		if err := a.singbox.Reload(ctx); err != nil {
+			return fmt.Errorf("coalescer: reload: %w", err)
+		}
+		c.lastHash = hash
+		c.hasHash = true
+	} else {
+		c.log.Debug("config unchanged, skipping sing-box reload", "overlays", len(overlays))
 	}
 	for _, p := range overlays {
 		if perr := a.store.PutPlacement(ctx, p); perr != nil {

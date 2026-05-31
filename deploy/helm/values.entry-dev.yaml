@@ -32,11 +32,13 @@ env:
   natsSnapshotPrefix: dev.agent.snapshots
   natsHeartbeatPrefix: dev.agent.heartbeats
   natsSyncReportPrefix: dev.agent.sync_reports
+  natsNodesTrafficSubject: dev.nodes.traffic
+  natsUsersTrafficSubject: dev.users.traffic
 
 executor:
   enabled: true
   singbox:
-    inboundTag: vless-in
+    inboundTag: vless-reality-in
     listenAddress: "::"
     listenPort: 443
     logLevel: info
@@ -61,3 +63,24 @@ podAnnotations:
   prometheus-env: dev
   prometheus-app: go-node-agent
   prometheus-role: entry
+
+wg:
+  enabled: true
+
+entryProxy:
+  enabled: true
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: dev
+    pullPolicy: Always
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    realitySecretName: go-node-agent-entry-dev-bootstrap
+
+probe:
+  clientIDs:
+    - 8add00c8-f944-4a7b-9839-e39c5eabdb6b
+    - d0f7952d-7b4b-4478-9e7b-02915fe734f1

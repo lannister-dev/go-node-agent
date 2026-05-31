@@ -11,6 +11,7 @@ BUILD_TIME  := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS     := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
 IMAGE       ?= harbor.lannister-dev.ru/vpn/node-agent
 IMAGE_TAG   ?= $(VERSION)
+IMAGE_ENTRY_PROXY ?= harbor.lannister-dev.ru/vpn-service/entry-proxy
 
 .PHONY: help
 help:
@@ -89,6 +90,19 @@ docker: ## Build container image
 .PHONY: docker-push
 docker-push: docker ## Build + push image
 	docker push $(IMAGE):$(IMAGE_TAG)
+
+.PHONY: build-entry-proxy
+build-entry-proxy: ## Build embedded entry proxy (needs with_utls for REALITY)
+	mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 go build -trimpath -tags with_utls -ldflags="-s -w" -o $(BIN_DIR)/entry-proxy ./cmd/entry-proxy
+
+.PHONY: docker-entry-proxy
+docker-entry-proxy: ## Build entry-proxy image (with_utls)
+	docker build -f Dockerfile.entry-proxy -t $(IMAGE_ENTRY_PROXY):$(IMAGE_TAG) .
+
+.PHONY: docker-entry-proxy-push
+docker-entry-proxy-push: docker-entry-proxy ## Build + push entry-proxy image
+	docker push $(IMAGE_ENTRY_PROXY):$(IMAGE_TAG)
 
 .PHONY: smoke
 smoke: ## Run docker-gated smoke tests against real sing-box (requires Docker)

@@ -19,6 +19,7 @@ type Options struct {
 	Address           string
 	InboundTag        string
 	InboundTagByXport map[domain.TransportKind]string
+	MirrorTag         string
 	Timeout           time.Duration
 	DialOptions       []grpc.DialOption
 	Logger            *slog.Logger
@@ -29,6 +30,7 @@ type Client struct {
 	handler    cmd.HandlerServiceClient
 	inboundTag string
 	tagByXport map[domain.TransportKind]string
+	mirrorTag  string
 	timeout    time.Duration
 	log        *slog.Logger
 }
@@ -67,6 +69,7 @@ func New(opts Options) (*Client, error) {
 		handler:    cmd.NewHandlerServiceClient(conn),
 		inboundTag: opts.InboundTag,
 		tagByXport: tagMap,
+		mirrorTag:  opts.MirrorTag,
 		timeout:    timeout,
 		log:        log.With("component", "xray"),
 	}, nil

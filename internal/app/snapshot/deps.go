@@ -19,6 +19,8 @@ type Publisher interface {
 type PlacementStore interface {
 	GetPlacement(ctx context.Context, id domain.PlacementID) (domain.Placement, bool, error)
 	PutPlacement(ctx context.Context, p domain.Placement) error
+	ListPlacements(ctx context.Context) ([]domain.Placement, error)
+	DeletePlacement(ctx context.Context, id domain.PlacementID) error
 }
 
 type Rebuilder interface {

@@ -86,30 +86,52 @@ func TestListener_RegistersBackendOnEvent(t *testing.T) {
 	}
 }
 
-func TestListener_PrefersRealityIPForAddress(t *testing.T) {
+func TestListener_PrefersInternalWgIP(t *testing.T) {
 	reg := NewRegistry()
 	l := newListener(t, &fakeSub{}, reg)
 	body := []byte(`{
-		"schema_version": 1,
 		"event_id": "e",
 		"node_id": "lv-01",
 		"emitted_at": "2026-05-19T10:00:00Z",
 		"upstream_node_id": "praha-02",
 		"upstream_public_domain": "praha-02.vpn.example.com",
-		"upstream_reality_ip": "10.0.0.42"
+		"upstream_reality_ip": "1.2.3.4",
+		"upstream_internal_wg_ip": "10.10.0.5",
+		"upstream_agent_port": 10100
 	}`)
 	if err := l.Handle(t.Context(), ports.Msg{Data: body}); err != nil {
 		t.Fatal(err)
 	}
 	spec, _ := reg.Get("praha-02")
-	if spec.Address != "10.0.0.42" {
-		t.Errorf("should prefer reality_ip; got address=%s", spec.Address)
+	if spec.Address != "10.10.0.5" {
+		t.Errorf("must prefer internal_wg_ip; got %s", spec.Address)
 	}
-	if spec.ServerName != "praha-02.vpn.example.com" {
-		t.Errorf("server_name should keep public_domain: %s", spec.ServerName)
+	if spec.Port != 9000 {
+		t.Errorf("must use Defaults.Port (BACKEND_DEFAULT_PORT), not upstream_agent_port; got %d", spec.Port)
 	}
-	if !spec.Reality.Enabled {
-		t.Error("Reality should be enabled when reality_ip present")
+	if spec.Reality.Enabled {
+		t.Error("backend outbound must never enable Reality (wg-mesh internal traffic is plain)")
+	}
+}
+
+func TestListener_FallsBackToRealityIPThenPublicDomain(t *testing.T) {
+	reg := NewRegistry()
+	l := newListener(t, &fakeSub{}, reg)
+	body := []byte(`{
+		"event_id": "e2",
+		"node_id": "lv-01",
+		"emitted_at": "2026-05-19T10:00:00Z",
+		"upstream_node_id": "legacy",
+		"upstream_public_domain": "x.example.com",
+		"upstream_reality_ip": "1.2.3.4"
+	}`)
+	_ = l.Handle(t.Context(), ports.Msg{Data: body})
+	spec, _ := reg.Get("legacy")
+	if spec.Address != "1.2.3.4" {
+		t.Errorf("without internal_wg_ip should fall back to reality_ip; got %s", spec.Address)
+	}
+	if spec.Reality.Enabled {
+		t.Error("Reality must remain disabled in backend outbound")
 	}
 }
 

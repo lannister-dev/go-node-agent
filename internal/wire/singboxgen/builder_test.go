@@ -80,7 +80,7 @@ func TestBuild_HappyPath(t *testing.T) {
 	}
 }
 
-func TestBuild_OutboundsIncludeDirectBlockAndBackends(t *testing.T) {
+func TestBuild_OutboundsIncludeDirectBlockSelectorsAndBackends(t *testing.T) {
 	data, _ := Build(sampleState())
 	got := parseConfig(t, data)
 	outs := got["outbounds"].([]any)
@@ -89,7 +89,12 @@ func TestBuild_OutboundsIncludeDirectBlockAndBackends(t *testing.T) {
 	for _, o := range outs {
 		tags = append(tags, o.(map[string]any)["tag"].(string))
 	}
-	want := []string{"direct", "block", "backend-latvia-01", "backend-praha-02"}
+	// Per active user (a, b), all backends are pre-rendered + one selector per user.
+	want := []string{
+		"direct", "block",
+		"b-uuid-a-latvia-01", "b-uuid-a-praha-02", "u-uuid-a",
+		"b-uuid-b-latvia-01", "b-uuid-b-praha-02", "u-uuid-b",
+	}
 	if len(tags) != len(want) {
 		t.Fatalf("outbounds: got %v, want %v", tags, want)
 	}
@@ -98,9 +103,22 @@ func TestBuild_OutboundsIncludeDirectBlockAndBackends(t *testing.T) {
 			t.Errorf("outbound %d: got %q, want %q", i, tags[i], want[i])
 		}
 	}
+	// Selector for uuid-a must default to praha-02 outbound.
+	for _, o := range outs {
+		m := o.(map[string]any)
+		if m["tag"] != "u-uuid-a" {
+			continue
+		}
+		if m["type"] != "selector" {
+			t.Errorf("u-uuid-a type=%v, want selector", m["type"])
+		}
+		if m["default"] != "b-uuid-a-praha-02" {
+			t.Errorf("u-uuid-a default=%v, want b-uuid-a-praha-02", m["default"])
+		}
+	}
 }
 
-func TestBuild_RouteRulesGroupActiveUsersByBackend(t *testing.T) {
+func TestBuild_RouteRulesPointAtPerUserSelector(t *testing.T) {
 	data, _ := Build(sampleState())
 	got := parseConfig(t, data)
 	route := got["route"].(map[string]any)
@@ -109,13 +127,13 @@ func TestBuild_RouteRulesGroupActiveUsersByBackend(t *testing.T) {
 		t.Fatalf("rules: %d", len(rules))
 	}
 	want := map[string][]string{
-		"backend-latvia-01": {"uuid-b"},
-		"backend-praha-02":  {"uuid-a"},
+		"u-uuid-a": {"uuid-a"},
+		"u-uuid-b": {"uuid-b"},
 	}
 	for _, r := range rules {
 		m := r.(map[string]any)
 		tag := m["outbound"].(string)
-		usersAny := m["user"].([]any)
+		usersAny := m["auth_user"].([]any)
 		gotUsers := make([]string, len(usersAny))
 		for i, u := range usersAny {
 			gotUsers[i] = u.(string)
@@ -305,9 +323,16 @@ func TestBuild_OutboundTagInvariant(t *testing.T) {
 	}
 	got := parseConfig(t, data)
 
-	wantTags := map[string]domain.BackendID{}
-	for _, id := range ids {
-		wantTags[OutboundTagFor(id)] = id
+	// Every (clientID, backendID) is pre-rendered as a vless outbound for selector flip.
+	wantBackendTags := map[string]bool{}
+	wantSelectorTags := map[string]bool{}
+	for i, id := range ids {
+		clientID := domain.ClientID(fmt.Sprintf("uuid-%d", i))
+		for _, b := range ids {
+			wantBackendTags[perUserOutboundTagFor(clientID, b)] = true
+		}
+		wantSelectorTags[perUserSelectorTagFor(clientID)] = true
+		_ = id
 	}
 
 	outs := got["outbounds"].([]any)
@@ -318,23 +343,27 @@ func TestBuild_OutboundTagInvariant(t *testing.T) {
 			continue
 		}
 		tag := m["tag"].(string)
-		if _, ok := wantTags[tag]; !ok {
-			t.Errorf("outbound tag %q does not match OutboundTagFor() for any backend; "+
-				"drain will not find this tag in /connections", tag)
+		if !wantBackendTags[tag] && !wantSelectorTags[tag] {
+			t.Errorf("outbound tag %q does not match per-user backend or selector for any placement", tag)
 		}
 		seenOutbound[tag] = true
 	}
-	for tag, id := range wantTags {
+	for tag := range wantBackendTags {
 		if !seenOutbound[tag] {
-			t.Errorf("backend %q rendered without outbound tag %q", id, tag)
+			t.Errorf("missing pre-rendered backend outbound tag %q", tag)
+		}
+	}
+	for tag := range wantSelectorTags {
+		if !seenOutbound[tag] {
+			t.Errorf("missing per-user selector tag %q", tag)
 		}
 	}
 
 	rules := got["route"].(map[string]any)["rules"].([]any)
 	for _, r := range rules {
 		tag := r.(map[string]any)["outbound"].(string)
-		if _, ok := wantTags[tag]; !ok {
-			t.Errorf("route rule outbound %q does not match OutboundTagFor() for any backend", tag)
+		if !wantSelectorTags[tag] {
+			t.Errorf("route rule outbound %q must be per-user selector", tag)
 		}
 	}
 }

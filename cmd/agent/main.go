@@ -16,8 +16,10 @@ import (
 
 	"github.com/lannister-dev/go-node-agent/internal/adapters/badger"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/controlapi"
+	"github.com/lannister-dev/go-node-agent/internal/adapters/entryproxyclient"
 	natsa "github.com/lannister-dev/go-node-agent/internal/adapters/nats"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/singbox"
+	"github.com/lannister-dev/go-node-agent/internal/adapters/wg"
 	"github.com/lannister-dev/go-node-agent/internal/adapters/xray"
 	"github.com/lannister-dev/go-node-agent/internal/app/applier"
 	"github.com/lannister-dev/go-node-agent/internal/app/backends"
@@ -28,6 +30,7 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/app/reconcile"
 	"github.com/lannister-dev/go-node-agent/internal/app/snapshot"
 	"github.com/lannister-dev/go-node-agent/internal/app/traffic"
+	"github.com/lannister-dev/go-node-agent/internal/app/wgmesh"
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/platform/config"
 	"github.com/lannister-dev/go-node-agent/internal/platform/idgen"
@@ -54,12 +57,13 @@ func main() {
 }
 
 type entryStack struct {
-	executor  applier.Executor
-	listener  *backends.Listener
-	actions   *executor.EntryActions
-	singbox   *singbox.Client
-	registry  *backends.Registry
-	coalescer *executor.RenderCoalescer
+	executor   applier.Executor
+	listener   *backends.Listener
+	actions    reconcile.Rebuilder
+	singbox    *singbox.Client
+	registry   *backends.Registry
+	coalescer  *executor.RenderCoalescer
+	entryProxy *entryproxyclient.Client
 }
 
 type backendStack struct {
@@ -203,9 +207,11 @@ func run() error {
 	)
 
 	natsTr, err := natsa.New(ctx, natsa.Options{
-		URL:    cfg.NATSURL,
-		Name:   cfg.NATSName + "-" + string(nodeID),
-		Logger: log,
+		URL:            cfg.NATSURL,
+		Name:           cfg.NATSName + "-" + string(nodeID),
+		PublishTimeout: cfg.NATSPublishTimeout,
+		ReconnectWait:  cfg.NATSReconnectWait,
+		Logger:         log,
 	})
 	if err != nil {
 		return err
@@ -237,8 +243,13 @@ func run() error {
 			}
 		}()
 		appExec = stack.executor
-		healthChecks = append(healthChecks, stack.singbox)
-		log.Info("real executor enabled (entry role)")
+		if stack.singbox != nil {
+			healthChecks = append(healthChecks, stack.singbox)
+		}
+		if stack.entryProxy != nil {
+			healthChecks = append(healthChecks, stack.entryProxy)
+		}
+		log.Info("real executor enabled (entry role)", "embedded_singbox", cfg.SingBoxEmbedded)
 	case cfg.EnableExecutor && strings.EqualFold(cfg.NodeRole, "backend"):
 		backendStack, err = buildBackendStack(cfg, store, log)
 		if err != nil {
@@ -309,17 +320,92 @@ func run() error {
 		return err
 	}
 
-	if bsRes.FullResyncRequired {
+	if bsRes.FullResyncRequired || cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
 		if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
 			log.Warn("snapshot request failed", "err", rerr)
 		}
 	}
 
+	if cfg.WgEnabled {
+		wgMgr, err := wg.New(cfg.WgInterface, cfg.WgKeyDir)
+		if err != nil {
+			return fmt.Errorf("wg manager: %w", err)
+		}
+		wgSvc, err := wgmesh.New(wgmesh.Config{
+			NodeID:     nodeID,
+			ListenPort: int(cfg.WgListenPort),
+		}, wgMgr, natsTr, log)
+		if err != nil {
+			return fmt.Errorf("wgmesh service: %w", err)
+		}
+		go func() {
+			if err := wgSvc.Run(ctx); err != nil && ctx.Err() == nil {
+				log.Error("wgmesh exited", "err", err)
+			}
+		}()
+	}
+
 	var trafficReporter *traffic.Reporter
-	if stack != nil {
+	if stack != nil && stack.singbox != nil {
 		trafficReporter, err = traffic.New(traffic.Config{
 			SingBoxAPIURL: cfg.SingBoxAPIURL,
 		}, log)
+		if err != nil {
+			return err
+		}
+	}
+
+	var trafficPub *traffic.Publisher
+	if trafficReporter != nil {
+		var connsSrc traffic.ConnectionsSource
+		if stack != nil {
+			switch {
+			case stack.singbox != nil:
+				connsSrc = stack.singbox
+			case stack.entryProxy != nil:
+				connsSrc = stack.entryProxy
+			}
+		}
+		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
+			NodeID:   nodeID,
+			NodeRole: cfg.NodeRole,
+			Subject:  cfg.NATSNodesTrafficSubject,
+			Interval: cfg.TrafficInterval,
+		}, natsTr, connsSrc, log)
+		if err != nil {
+			return err
+		}
+	}
+
+	var statsRep *traffic.StatsReporter
+	if stack != nil && stack.registry != nil {
+		var statsSrc traffic.ConnectionsSource
+		switch {
+		case stack.singbox != nil:
+			statsSrc = stack.singbox
+		case stack.entryProxy != nil:
+			statsSrc = stack.entryProxy
+		}
+		if statsSrc != nil {
+			statsRep, err = traffic.NewStatsReporter(traffic.StatsReporterConfig{
+				NodeID:         nodeID,
+				ProbeClientIDs: cfg.ProbeClientIDs,
+			}, natsTr, statsSrc, stack.registry, log)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	var backendTrafficPub *traffic.BackendPublisher
+	if backendStack != nil && backendStack.xray != nil {
+		backendTrafficPub, err = traffic.NewBackendPublisher(traffic.BackendPublisherConfig{
+			NodeID:             nodeID,
+			NodeTrafficSubject: cfg.NATSNodesTrafficSubject,
+			UserTrafficSubject: cfg.NATSUsersTrafficSubject,
+			Interval:           cfg.TrafficInterval,
+			ProbeClientIDs:     cfg.ProbeClientIDs,
+		}, natsTr, natsTr, backendStack.xray, log)
 		if err != nil {
 			return err
 		}
@@ -363,11 +449,23 @@ func run() error {
 	if trafficReporter != nil {
 		g.Go(func() error { return trafficReporter.Run(gctx) })
 	}
+	if trafficPub != nil {
+		g.Go(func() error { return trafficPub.Run(gctx) })
+	}
+	if backendTrafficPub != nil {
+		g.Go(func() error { return backendTrafficPub.Run(gctx) })
+	}
+	if statsRep != nil {
+		g.Go(func() error { return statsRep.Run(gctx) })
+	}
 	if stack != nil && stack.listener != nil {
 		g.Go(func() error { return stack.listener.Run(gctx) })
 	}
 	if stack != nil && stack.coalescer != nil {
 		g.Go(func() error { return stack.coalescer.Run(gctx) })
+	}
+	if stack != nil && stack.entryProxy != nil && stack.actions != nil {
+		g.Go(func() error { return runEntryProxyResync(gctx, stack.entryProxy, stack.actions, log) })
 	}
 
 	log.Info("agent running",
@@ -401,6 +499,9 @@ func buildEntryStack(
 	subjects wire.Subjects,
 	log *slog.Logger,
 ) (*entryStack, error) {
+	if cfg.SingBoxEmbedded {
+		return buildEmbeddedEntryStack(cfg, nodeID, store, natsTr, subjects, log)
+	}
 	sb, err := singbox.New(singbox.Options{
 		APIURL:     cfg.SingBoxAPIURL,
 		ConfigPath: cfg.SingBoxConfigPath,
@@ -477,6 +578,94 @@ func buildEntryStack(
 	}, nil
 }
 
+// buildEmbeddedEntryStack drives the embedded entry proxy (ADR 0005) over its
+// control socket instead of rendering + reloading an external sing-box.
+func buildEmbeddedEntryStack(
+	cfg config.Config,
+	nodeID domain.NodeID,
+	store *badger.Store,
+	natsTr *natsa.Transport,
+	subjects wire.Subjects,
+	log *slog.Logger,
+) (*entryStack, error) {
+	reg := backends.NewRegistry()
+	proxy := entryproxyclient.New(cfg.EntryProxySocket)
+
+	actions, err := executor.NewEntryProxyActions(proxy, store, reg, log)
+	if err != nil {
+		return nil, err
+	}
+	orch, err := flip.New(actions, log, flip.Options{})
+	if err != nil {
+		return nil, err
+	}
+	flipExec, err := executor.NewFlipExecutor(actions, orch, executor.FlipExecutorOptions{
+		DrainTimeout: cfg.DrainTimeout,
+	}, log)
+	if err != nil {
+		return nil, err
+	}
+	listener, err := backends.NewListener(backends.ListenerConfig{
+		NodeID:  nodeID,
+		Subject: subjects.UpstreamChanged(nodeID),
+		Durable: "agent_" + string(nodeID) + "_upstream",
+		Defaults: backends.Defaults{
+			Port:      cfg.BackendDefaultPort,
+			Transport: domain.TransportKind(cfg.BackendDefaultTransport),
+		},
+	}, natsTr, reg, log)
+	if err != nil {
+		return nil, err
+	}
+
+	return &entryStack{
+		executor:   flipExec,
+		listener:   listener,
+		actions:    actions,
+		registry:   reg,
+		entryProxy: proxy,
+	}, nil
+}
+
+// runEntryProxyResync pushes store state to the embedded proxy on startup and
+// whenever the proxy restarts (its epoch changes), since the proxy holds no
+// state across restarts.
+func runEntryProxyResync(ctx context.Context, proxy *entryproxyclient.Client, rebuilder reconcile.Rebuilder, log *slog.Logger) error {
+	const interval = 5 * time.Second
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	var lastEpoch int64
+	resync := func() {
+		epoch, err := proxy.Epoch(ctx)
+		if err != nil {
+			log.Warn("entry proxy epoch check failed", "err", err)
+			return
+		}
+		pending := false
+		if hp, ok := rebuilder.(interface{ HasPending() bool }); ok {
+			pending = hp.HasPending()
+		}
+		if epoch == lastEpoch && !pending {
+			return
+		}
+		if err := rebuilder.RebuildFromStore(ctx); err != nil {
+			log.Warn("entry proxy resync failed", "err", err)
+			return
+		}
+		lastEpoch = epoch
+		log.Info("entry proxy resynced from store", "epoch", epoch)
+	}
+	resync()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-t.C:
+			resync()
+		}
+	}
+}
+
 func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger) (*backendStack, error) {
 	tagByXport := map[domain.TransportKind]string{}
 	if cfg.XrayInboundTagWS != "" {
@@ -495,6 +684,7 @@ func buildBackendStack(cfg config.Config, store *badger.Store, log *slog.Logger)
 		Address:           cfg.XrayGRPCAddr,
 		InboundTag:        cfg.XrayInboundTag,
 		InboundTagByXport: tagByXport,
+		MirrorTag:         cfg.XrayInboundTagWgInternal,
 		Timeout:           3 * time.Second,
 		Logger:            log,
 	})

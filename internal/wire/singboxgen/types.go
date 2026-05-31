@@ -24,6 +24,7 @@ type InboundSpec struct {
 
 type BackendSpec struct {
 	ID         domain.BackendID
+	Name       string
 	Address    string
 	Port       uint16
 	ServerName string

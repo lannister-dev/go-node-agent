@@ -11,11 +11,25 @@ import (
 )
 
 const (
-	directOutboundTag = "direct"
-	blockOutboundTag  = "block"
-	vlessType         = "vless"
-	defaultClashAddr  = "127.0.0.1:9090"
+	directOutboundTag        = "direct"
+	blockOutboundTag         = "block"
+	vlessType                = "vless"
+	selectorType             = "selector"
+	defaultClashAddr         = "127.0.0.1:9090"
+	PerUserSelectorTagPrefix = "u-"
 )
+
+func perUserSelectorTagFor(clientID domain.ClientID) string {
+	return PerUserSelectorTagPrefix + strings.ToLower(string(clientID))
+}
+
+func PerUserSelectorTagFor(clientID domain.ClientID) string {
+	return perUserSelectorTagFor(clientID)
+}
+
+func PerUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
+	return perUserOutboundTagFor(clientID, backendID)
+}
 
 func Build(state NodeState) ([]byte, error) {
 	if err := validate(state); err != nil {
@@ -24,7 +38,7 @@ func Build(state NodeState) ([]byte, error) {
 	cfg := singBoxConfig{
 		Log:       buildLog(state.Log),
 		Inbounds:  []inbound{buildInbound(state.Inbound, state.Placements)},
-		Outbounds: buildOutbounds(state.Backends),
+		Outbounds: buildOutbounds(state.Placements, state.Backends),
 		Route:     buildRoute(state.Placements, state.Backends),
 	}
 	if state.ClashAPI.Enabled {
@@ -117,6 +131,7 @@ func collectActiveUsers(placements []domain.Placement) []vlessUser {
 		}
 		seen[p.ClientID] = true
 		out = append(out, vlessUser{
+			Name: string(p.ClientID),
 			UUID: string(p.ClientID),
 			Flow: flowForTransport(p.Transport),
 		})
@@ -126,6 +141,12 @@ func collectActiveUsers(placements []domain.Placement) []vlessUser {
 }
 
 func flowForTransport(t domain.TransportKind) string {
+	return FlowForTransport(t)
+}
+
+// FlowForTransport maps a transport to its VLESS flow (vision on REALITY, none
+// otherwise). Exported for the embedded entry proxy, which sets per-user flow.
+func FlowForTransport(t domain.TransportKind) string {
 	if t == domain.TransportReality {
 		return "xtls-rprx-vision"
 	}
@@ -145,25 +166,67 @@ func buildTLS(r RealitySpec) *tlsConfig {
 	}
 }
 
-func buildOutbounds(backends []BackendSpec) []outbound {
-	out := make([]outbound, 0, 2+len(backends))
+func buildOutbounds(placements []domain.Placement, backends []BackendSpec) []outbound {
+	backendByID := map[domain.BackendID]BackendSpec{}
+	sortedBackends := make([]BackendSpec, 0, len(backends))
+	for _, b := range backends {
+		backendByID[b.ID] = b
+		sortedBackends = append(sortedBackends, b)
+	}
+	sort.Slice(sortedBackends, func(i, j int) bool {
+		return sortedBackends[i].ID < sortedBackends[j].ID
+	})
+
+	desiredBackendByUser := map[domain.ClientID]domain.BackendID{}
+	users := make([]domain.ClientID, 0, len(placements))
+	seenUser := map[domain.ClientID]bool{}
+	for _, p := range placements {
+		if p.Desired != domain.DesiredActive {
+			continue
+		}
+		if p.ClientID == "" {
+			continue
+		}
+		if _, ok := backendByID[p.BackendNodeID]; !ok {
+			continue
+		}
+		if !seenUser[p.ClientID] {
+			seenUser[p.ClientID] = true
+			users = append(users, p.ClientID)
+		}
+		desiredBackendByUser[p.ClientID] = p.BackendNodeID
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
+
+	out := make([]outbound, 0, 2+len(users)*(len(sortedBackends)+1))
 	out = append(out,
 		outbound{Type: directOutboundTag, Tag: directOutboundTag},
 		outbound{Type: blockOutboundTag, Tag: blockOutboundTag},
 	)
-	sorted := append([]BackendSpec{}, backends...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
-	for _, b := range sorted {
-		o := outbound{
-			Type:       vlessType,
-			Tag:        outboundTagFor(b.ID),
-			Server:     b.Address,
-			ServerPort: b.Port,
+
+	for _, uid := range users {
+		for _, b := range sortedBackends {
+			out = append(out, outbound{
+				Type:       vlessType,
+				Tag:        perUserOutboundTagFor(uid, b.ID),
+				Server:     b.Address,
+				ServerPort: b.Port,
+				UUID:       string(uid),
+				Flow:       "",
+			})
 		}
-		if b.Reality.Enabled {
-			o.TLS = buildTLS(b.Reality)
+		options := make([]string, 0, len(sortedBackends)+1)
+		for _, b := range sortedBackends {
+			options = append(options, perUserOutboundTagFor(uid, b.ID))
 		}
-		out = append(out, o)
+		options = append(options, blockOutboundTag)
+		out = append(out, outbound{
+			Type:                      selectorType,
+			Tag:                       perUserSelectorTagFor(uid),
+			Outbounds:                 options,
+			Default:                   perUserOutboundTagFor(uid, desiredBackendByUser[uid]),
+			InterruptExistConnections: false,
+		})
 	}
 	return out
 }
@@ -174,7 +237,8 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		backendByID[b.ID] = true
 	}
 
-	usersByBackend := map[domain.BackendID][]string{}
+	seen := map[domain.ClientID]bool{}
+	users := make([]domain.ClientID, 0, len(placements))
 	for _, p := range placements {
 		if p.Desired != domain.DesiredActive {
 			continue
@@ -182,23 +246,22 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 		if !backendByID[p.BackendNodeID] {
 			continue
 		}
-		usersByBackend[p.BackendNodeID] = append(usersByBackend[p.BackendNodeID], string(p.ClientID))
+		if p.ClientID == "" {
+			continue
+		}
+		if seen[p.ClientID] {
+			continue
+		}
+		seen[p.ClientID] = true
+		users = append(users, p.ClientID)
 	}
+	sort.Slice(users, func(i, j int) bool { return users[i] < users[j] })
 
-	rules := make([]routeRule, 0, len(usersByBackend))
-	bids := make([]domain.BackendID, 0, len(usersByBackend))
-	for id := range usersByBackend {
-		bids = append(bids, id)
-	}
-	sort.Slice(bids, func(i, j int) bool { return bids[i] < bids[j] })
-
-	for _, id := range bids {
-		users := usersByBackend[id]
-		sort.Strings(users)
-		users = dedupSorted(users)
+	rules := make([]routeRule, 0, len(users))
+	for _, uid := range users {
 		rules = append(rules, routeRule{
-			User:     users,
-			Outbound: outboundTagFor(id),
+			AuthUser: []string{string(uid)},
+			Outbound: perUserSelectorTagFor(uid),
 		})
 	}
 
@@ -209,12 +272,25 @@ func buildRoute(placements []domain.Placement, backends []BackendSpec) routeConf
 	}
 }
 
-func outboundTagFor(id domain.BackendID) string {
-	return OutboundTagFor(id)
+// PerUserOutboundTagPrefix marks per-user backend outbounds rendered by the entry agent.
+// Traffic publisher and drain reader rely on this prefix to attribute connections to a backend.
+const PerUserOutboundTagPrefix = "b-"
+
+// ParsePerUserOutboundTag extracts (clientID, backendID) from a per-user outbound tag.
+// Returns ok=false if tag is not in the expected b-<client_uuid>-<backend_uuid> format.
+func ParsePerUserOutboundTag(tag string) (clientID, backendID string, ok bool) {
+	if !strings.HasPrefix(tag, PerUserOutboundTagPrefix) {
+		return "", "", false
+	}
+	parts := strings.Split(tag, "-")
+	if len(parts) != 11 {
+		return "", "", false
+	}
+	return strings.Join(parts[1:6], "-"), strings.Join(parts[6:11], "-"), true
 }
 
-func OutboundTagFor(id domain.BackendID) string {
-	return "backend-" + strings.ToLower(string(id))
+func perUserOutboundTagFor(clientID domain.ClientID, backendID domain.BackendID) string {
+	return PerUserOutboundTagPrefix + strings.ToLower(string(clientID)) + "-" + strings.ToLower(string(backendID))
 }
 
 func coalesce(values ...string) string {
@@ -224,17 +300,4 @@ func coalesce(values ...string) string {
 		}
 	}
 	return ""
-}
-
-func dedupSorted(s []string) []string {
-	if len(s) <= 1 {
-		return s
-	}
-	out := s[:1]
-	for _, v := range s[1:] {
-		if v != out[len(out)-1] {
-			out = append(out, v)
-		}
-	}
-	return out
 }

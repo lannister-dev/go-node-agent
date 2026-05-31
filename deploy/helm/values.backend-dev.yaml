@@ -12,6 +12,9 @@ image:
 imagePullSecrets:
   - name: harbor-registry
 
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
 nodeSelector:
   role: vpn
   channel: dev
@@ -33,6 +36,8 @@ env:
   controlApiURL: http://control-api-dev.vpn-dev.svc.cluster.local:8000
   natsURL: nats://nats.nats.svc.cluster.local:4222
   nodeRole: backend
+  httpAddr: ":9095"
+  httpPort: 9095
   logLevel: debug
   logFormat: json
   heartbeatInterval: 10s
@@ -41,16 +46,19 @@ env:
   natsSnapshotPrefix: dev.agent.snapshots
   natsHeartbeatPrefix: dev.agent.heartbeats
   natsSyncReportPrefix: dev.agent.sync_reports
+  natsNodesTrafficSubject: dev.nodes.traffic
+  natsUsersTrafficSubject: dev.users.traffic
 
 executor:
   enabled: true
   xray:
-    grpcAddr: vpn-xray-dev-xray.vpn-dev.svc.cluster.local:10085
+    grpcAddr: $(NODE_IP):10085
     inboundTag: vless-ws  # fallback when transport-specific tag below missing
     inboundTagWS: vless-ws
     inboundTagReality: vless-reality
     inboundTagXHTTP: vless-xhttp
     inboundTagTCP: vless-tcp
+    inboundTagWgInternal: vless-wg-internal
 
 secrets:
   bootstrapTokenSecretName: go-node-agent-backend-dev-bootstrap
@@ -72,3 +80,11 @@ podAnnotations:
   prometheus-env: dev
   prometheus-app: go-node-agent
   prometheus-role: backend
+
+wg:
+  enabled: true
+
+probe:
+  clientIDs:
+    - 8add00c8-f944-4a7b-9839-e39c5eabdb6b
+    - d0f7952d-7b4b-4478-9e7b-02915fe734f1

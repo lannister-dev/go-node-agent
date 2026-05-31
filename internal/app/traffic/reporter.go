@@ -129,8 +129,8 @@ func (r *Reporter) stream(ctx context.Context) error {
 			r.log.Debug("traffic: parse event failed", "line", line, "err", jerr)
 			continue
 		}
-		r.upBytes.Store(ev.Up)
-		r.downBytes.Store(ev.Down)
+		r.upBytes.Add(ev.Up)
+		r.downBytes.Add(ev.Down)
 		r.events.Add(1)
 		r.lastAt.Store(time.Now().UTC().Unix())
 	}

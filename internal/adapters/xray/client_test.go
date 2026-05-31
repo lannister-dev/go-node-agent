@@ -2,6 +2,7 @@ package xray
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"net"
 	"sync"
@@ -16,17 +17,17 @@ import (
 	"github.com/lannister-dev/go-node-agent/internal/domain"
 	"github.com/lannister-dev/go-node-agent/internal/ports"
 	cmd "github.com/lannister-dev/go-node-agent/pkg/proto/xray/app/proxyman/command"
-	xvless "github.com/lannister-dev/go-node-agent/pkg/proto/xray/proxy/vless"
 )
 
 var _ ports.Xray = (*Client)(nil)
 
 type fakeHandlerServer struct {
 	cmd.UnimplementedHandlerServiceServer
-	mu       sync.Mutex
-	received []*cmd.AlterInboundRequest
-	respErr  error
-	delay    time.Duration
+	mu          sync.Mutex
+	received    []*cmd.AlterInboundRequest
+	respErr     error
+	respErrFunc func(*cmd.AlterInboundRequest) error
+	delay       time.Duration
 }
 
 func (f *fakeHandlerServer) AlterInbound(ctx context.Context, req *cmd.AlterInboundRequest) (*cmd.AlterInboundResponse, error) {
@@ -40,7 +41,11 @@ func (f *fakeHandlerServer) AlterInbound(ctx context.Context, req *cmd.AlterInbo
 	f.mu.Lock()
 	f.received = append(f.received, proto.Clone(req).(*cmd.AlterInboundRequest))
 	err := f.respErr
+	fn := f.respErrFunc
 	f.mu.Unlock()
+	if fn != nil {
+		err = fn(req)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +60,7 @@ func (f *fakeHandlerServer) snapshot() []*cmd.AlterInboundRequest {
 	return out
 }
 
-func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
+func startFakeServerWithMirror(t *testing.T, fake *fakeHandlerServer, mirror string) *Client {
 	t.Helper()
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
@@ -77,6 +82,7 @@ func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
 	c, err := New(Options{
 		Address:    "passthrough:///bufnet",
 		InboundTag: "vless-in",
+		MirrorTag:  mirror,
 		Timeout:    2 * time.Second,
 		DialOptions: []grpc.DialOption{
 			grpc.WithContextDialer(dialer),
@@ -90,7 +96,16 @@ func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
 	return c
 }
 
-func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperation, *xvless.Account) {
+func startFakeServer(t *testing.T, fake *fakeHandlerServer) *Client {
+	return startFakeServerWithMirror(t, fake, "")
+}
+
+type decodedAccount struct {
+	id   string
+	flow string
+}
+
+func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperation, decodedAccount) {
 	t.Helper()
 	if req.GetOperation().GetType() != typeAddUserOperation {
 		t.Fatalf("op type: %s", req.GetOperation().GetType())
@@ -102,11 +117,58 @@ func decodeAddOp(t *testing.T, req *cmd.AlterInboundRequest) (*cmd.AddUserOperat
 	if op.GetUser().GetAccount().GetType() != typeVlessAccount {
 		t.Fatalf("account type: %s", op.GetUser().GetAccount().GetType())
 	}
-	var acc xvless.Account
-	if err := proto.Unmarshal(op.GetUser().GetAccount().GetValue(), &acc); err != nil {
-		t.Fatalf("unmarshal account: %v", err)
+	return &op, decodeVlessAccount(t, op.GetUser().GetAccount().GetValue())
+}
+
+func decodeVlessAccount(t *testing.T, raw []byte) decodedAccount {
+	t.Helper()
+	var acc decodedAccount
+	for len(raw) > 0 {
+		tag, n := binary.Uvarint(raw)
+		if n <= 0 {
+			t.Fatalf("bad tag in account")
+		}
+		raw = raw[n:]
+		fieldNum := tag >> 3
+		ln, n := binary.Uvarint(raw)
+		if n <= 0 {
+			t.Fatalf("bad length in account")
+		}
+		raw = raw[n:]
+		val := string(raw[:ln])
+		raw = raw[ln:]
+		switch fieldNum {
+		case 1:
+			acc.id = val
+		case 2:
+			acc.flow = val
+		}
 	}
-	return &op, &acc
+	return acc
+}
+
+func TestAddUser_MirroredToWgInternal(t *testing.T) {
+	fake := &fakeHandlerServer{}
+	c := startFakeServerWithMirror(t, fake, "vless-wg-internal")
+	if err := c.AddUser(t.Context(), ports.XrayUser{
+		ClientID:  "01234567-89ab-cdef-0123-456789abcdef",
+		Transport: domain.TransportReality,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := fake.snapshot()
+	tags := map[string]int{}
+	for _, r := range reqs {
+		if r.GetOperation().GetType() == typeAddUserOperation {
+			tags[r.GetTag()]++
+		}
+	}
+	if tags["vless-in"] != 1 {
+		t.Errorf("expected 1 add to primary, got %d", tags["vless-in"])
+	}
+	if tags["vless-wg-internal"] != 1 {
+		t.Errorf("expected 1 add to mirror (vless-wg-internal), got %d", tags["vless-wg-internal"])
+	}
 }
 
 func TestAddUser_VLESS_WS(t *testing.T) {
@@ -129,11 +191,11 @@ func TestAddUser_VLESS_WS(t *testing.T) {
 	if op.GetUser().GetEmail() != "01234567-89ab-cdef-0123-456789abcdef" {
 		t.Errorf("email: %s", op.GetUser().GetEmail())
 	}
-	if acc.GetId() != "01234567-89ab-cdef-0123-456789abcdef" {
-		t.Errorf("account id: %s", acc.GetId())
+	if acc.id != "01234567-89ab-cdef-0123-456789abcdef" {
+		t.Errorf("account id: %s", acc.id)
 	}
-	if acc.GetFlow() != "" {
-		t.Errorf("ws should have empty flow, got %q", acc.GetFlow())
+	if acc.flow != "" {
+		t.Errorf("ws should have empty flow, got %q", acc.flow)
 	}
 }
 
@@ -147,8 +209,8 @@ func TestAddUser_RealityHasVisionFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, acc := decodeAddOp(t, fake.snapshot()[0])
-	if acc.GetFlow() != "xtls-rprx-vision" {
-		t.Errorf("reality flow: %q", acc.GetFlow())
+	if acc.flow != "xtls-rprx-vision" {
+		t.Errorf("reality flow: %q", acc.flow)
 	}
 }
 
@@ -183,6 +245,39 @@ func TestAddUser_ServerError(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestAddUser_RemovesAndRetriesOnAlreadyExists(t *testing.T) {
+	fake := &fakeHandlerServer{}
+	fake.respErrFunc = func(req *cmd.AlterInboundRequest) error {
+		if len(fake.received) == 1 && req.GetOperation().GetType() == typeAddUserOperation {
+			return errors.New("proxy/vless: user already exists")
+		}
+		return nil
+	}
+	c := startFakeServer(t, fake)
+	if err := c.AddUser(t.Context(), ports.XrayUser{
+		ClientID:  "01234567-89ab-cdef-0123-456789abcdef",
+		Transport: domain.TransportReality,
+	}); err != nil {
+		t.Fatalf("expected self-heal to succeed, got: %v", err)
+	}
+	reqs := fake.snapshot()
+	var addOps, removeOps int
+	for _, r := range reqs {
+		switch r.GetOperation().GetType() {
+		case typeAddUserOperation:
+			addOps++
+		case typeRemoveUserOperation:
+			removeOps++
+		}
+	}
+	if addOps != 2 {
+		t.Errorf("expected 2 add ops (initial + retry), got %d", addOps)
+	}
+	if removeOps == 0 {
+		t.Errorf("expected at least 1 remove op for self-heal, got 0")
 	}
 }
 

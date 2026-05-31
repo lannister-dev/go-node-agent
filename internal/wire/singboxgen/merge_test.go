@@ -113,7 +113,7 @@ func TestMergeBase_AppendsBackendOutbounds(t *testing.T) {
 	if tags[0] != "direct" || tags[1] != "block" {
 		t.Errorf("base outbounds reorder broken: %v", tags)
 	}
-	if tags[2] != "backend-latvia-01" || tags[3] != "backend-praha-02" {
+	if tags[2] != "b-uuid-b-latvia-01" || tags[3] != "b-uuid-a-praha-02" {
 		t.Errorf("dynamic outbounds not appended in sorted order: %v", tags)
 	}
 }
@@ -126,12 +126,39 @@ func TestMergeBase_PrependsDynamicRoutePrependsKeepsBaseRules(t *testing.T) {
 	if len(rules) != 3 {
 		t.Fatalf("rules: %d", len(rules))
 	}
-	if rules[0].(map[string]any)["outbound"] != "backend-latvia-01" {
+	if rules[0].(map[string]any)["outbound"] != "b-uuid-b-latvia-01" {
 		t.Errorf("first dynamic rule: %+v", rules[0])
 	}
 	last := rules[len(rules)-1].(map[string]any)
 	if protos, ok := last["protocol"].([]any); !ok || len(protos) == 0 || protos[0] != "dns" {
 		t.Errorf("base dns rule should be kept at end: %+v", last)
+	}
+}
+
+func TestMergeBase_BackendOutboundsAreplainVlessWithoutTLS(t *testing.T) {
+	// Backend outbounds carry entry→backend traffic over wg-mesh.
+	// Wg-mesh already provides authenticated encryption; layering Reality on top
+	// adds no security but breaks sing-box when utls.fingerprint is missing.
+	state := mergeState()
+	for i := range state.Backends {
+		state.Backends[i].Reality = RealitySpec{}
+	}
+	merged, err := MergeBase(baseConfigJSON(), state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	_ = json.Unmarshal(merged, &got)
+	outs := got["outbounds"].([]any)
+	for _, o := range outs {
+		m := o.(map[string]any)
+		tag, _ := m["tag"].(string)
+		if !strings.HasPrefix(tag, "b-") {
+			continue
+		}
+		if _, has := m["tls"]; has {
+			t.Errorf("backend outbound %q must not carry tls when Reality is disabled: %+v", tag, m)
+		}
 	}
 }
 
@@ -165,7 +192,7 @@ func TestMergeBase_RemovesStalePlacements(t *testing.T) {
 	}
 	rules := got["route"].(map[string]any)["rules"].([]any)
 	for _, r := range rules {
-		if out, ok := r.(map[string]any)["outbound"].(string); ok && out == "backend-latvia-01" {
+		if out, ok := r.(map[string]any)["outbound"].(string); ok && out == "b-uuid-b-latvia-01" {
 			t.Error("stale rule for removed placement not cleaned")
 		}
 	}
@@ -176,7 +203,7 @@ func TestMergeBase_EmptyBaseUsesBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "backend-praha-02") {
+	if !strings.Contains(string(out), "b-uuid-a-praha-02") {
 		t.Error("nil base should fall through to Build()")
 	}
 }

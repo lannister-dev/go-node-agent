@@ -23,6 +23,14 @@ tolerations:
 priorityClassName: ""
 hostNetwork: false
 dnsPolicy: ClusterFirst
+dnsConfig:
+  options:
+    - name: ndots
+      value: "2"
+    - name: timeout
+      value: "2"
+    - name: attempts
+      value: "5"
 
 podLabels: {}
 podAnnotations:
@@ -64,6 +72,12 @@ env:
   natsHeartbeatPrefix: agent.heartbeats
   natsSyncReportPrefix: agent.sync_reports
 
+wg:
+  enabled: false
+  interface: wg0
+  keyDir: /var/lib/go-node-agent/wg
+  listenPort: 4500
+
 executor:
   enabled: false
   singbox:
@@ -72,7 +86,7 @@ executor:
     listenPort: 443
     logLevel: info
   backendDefaults:
-    port: 9000
+    port: 10100
     transport: ws
   xray:
     grpcAddr: 127.0.0.1:10085
@@ -100,8 +114,35 @@ haproxy:
   socketHostPath: /var/run/haproxy
   socketName: admin.sock
 
+# client_ids of the probe/monitoring agent, excluded from user counters
+probe:
+  clientIDs: []
+
 singbox:
   configHostPath: /var/lib/sing-box-shared
+
+entryProxy:
+  enabled: false
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: ""
+    pullPolicy: IfNotPresent
+  socketDir: /var/run/entry-proxy
+  listenAddr: ":443"
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    # secret with keys: reality_private_key, reality_short_id
+    realitySecretName: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
 
 probes:
   liveness:

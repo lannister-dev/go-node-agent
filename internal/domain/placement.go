@@ -52,20 +52,21 @@ func (r ReportStatus) Valid() bool {
 }
 
 type Placement struct {
-	ID            PlacementID
-	KeyID         KeyID
-	ClientID      ClientID
-	NodeID        NodeID
-	BackendNodeID BackendID
-	Desired       DesiredState
-	Applied       AppliedState
-	OpVersion     OpVersion
-	Protocol      Protocol
-	Transport     TransportKind
-	IsRevoked     bool
-	ValidUntil    time.Time
-	UpdatedAt     time.Time
-	LastAppliedAt time.Time
+	ID               PlacementID
+	KeyID            KeyID
+	ClientID         ClientID
+	NodeID           NodeID
+	BackendNodeID    BackendID
+	Desired          DesiredState
+	Applied          AppliedState
+	OpVersion        OpVersion
+	Protocol         Protocol
+	Transport        TransportKind
+	IsRevoked        bool
+	ValidUntil       time.Time
+	UpdatedAt        time.Time
+	LastAppliedAt    time.Time
+	EntryOverrideTag string
 }
 
 type PlacementReport struct {

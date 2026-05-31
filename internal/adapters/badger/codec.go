@@ -36,20 +36,21 @@ func unmarshalIdentity(data []byte) (domain.NodeIdentity, error) {
 
 func marshalPlacement(p domain.Placement) ([]byte, error) {
 	pb := &agentv1.StoredPlacement{
-		Id:            string(p.ID),
-		KeyId:         string(p.KeyID),
-		ClientId:      string(p.ClientID),
-		NodeId:        string(p.NodeID),
-		BackendNodeId: string(p.BackendNodeID),
-		OpVersion:     uint64(p.OpVersion),
-		DesiredState:  desiredToProto(p.Desired),
-		AppliedState:  appliedToProto(p.Applied),
-		Transport:     transportToProto(p.Transport),
-		Protocol:      protocolToProto(p.Protocol),
-		IsRevoked:     p.IsRevoked,
-		ValidUntil:    timeToProto(p.ValidUntil),
-		UpdatedAt:     timeToProto(p.UpdatedAt),
-		LastAppliedAt: timeToProto(p.LastAppliedAt),
+		Id:               string(p.ID),
+		KeyId:            string(p.KeyID),
+		ClientId:         string(p.ClientID),
+		NodeId:           string(p.NodeID),
+		BackendNodeId:    string(p.BackendNodeID),
+		OpVersion:        uint64(p.OpVersion),
+		DesiredState:     desiredToProto(p.Desired),
+		AppliedState:     appliedToProto(p.Applied),
+		Transport:        transportToProto(p.Transport),
+		Protocol:         protocolToProto(p.Protocol),
+		IsRevoked:        p.IsRevoked,
+		ValidUntil:       timeToProto(p.ValidUntil),
+		UpdatedAt:        timeToProto(p.UpdatedAt),
+		LastAppliedAt:    timeToProto(p.LastAppliedAt),
+		EntryOverrideTag: p.EntryOverrideTag,
 	}
 	return proto.Marshal(pb)
 }
@@ -60,20 +61,21 @@ func unmarshalPlacement(data []byte) (domain.Placement, error) {
 		return domain.Placement{}, fmt.Errorf("unmarshal stored placement: %w", err)
 	}
 	return domain.Placement{
-		ID:            domain.PlacementID(pb.GetId()),
-		KeyID:         domain.KeyID(pb.GetKeyId()),
-		ClientID:      domain.ClientID(pb.GetClientId()),
-		NodeID:        domain.NodeID(pb.GetNodeId()),
-		BackendNodeID: domain.BackendID(pb.GetBackendNodeId()),
-		OpVersion:     domain.OpVersion(pb.GetOpVersion()),
-		Desired:       desiredFromProto(pb.GetDesiredState()),
-		Applied:       appliedFromProto(pb.GetAppliedState()),
-		Transport:     transportFromProto(pb.GetTransport()),
-		Protocol:      protocolFromProto(pb.GetProtocol()),
-		IsRevoked:     pb.GetIsRevoked(),
-		ValidUntil:    timeFromProto(pb.ValidUntil),
-		UpdatedAt:     timeFromProto(pb.UpdatedAt),
-		LastAppliedAt: timeFromProto(pb.LastAppliedAt),
+		ID:               domain.PlacementID(pb.GetId()),
+		KeyID:            domain.KeyID(pb.GetKeyId()),
+		ClientID:         domain.ClientID(pb.GetClientId()),
+		NodeID:           domain.NodeID(pb.GetNodeId()),
+		BackendNodeID:    domain.BackendID(pb.GetBackendNodeId()),
+		OpVersion:        domain.OpVersion(pb.GetOpVersion()),
+		Desired:          desiredFromProto(pb.GetDesiredState()),
+		Applied:          appliedFromProto(pb.GetAppliedState()),
+		Transport:        transportFromProto(pb.GetTransport()),
+		Protocol:         protocolFromProto(pb.GetProtocol()),
+		IsRevoked:        pb.GetIsRevoked(),
+		ValidUntil:       timeFromProto(pb.ValidUntil),
+		UpdatedAt:        timeFromProto(pb.UpdatedAt),
+		LastAppliedAt:    timeFromProto(pb.LastAppliedAt),
+		EntryOverrideTag: pb.GetEntryOverrideTag(),
 	}, nil
 }
 

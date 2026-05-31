@@ -70,11 +70,11 @@ func TestReporter_AccumulatesEvents(t *testing.T) {
 		default:
 			if r.Events() >= 3 {
 				cancel()
-				if r.UpBytes() != 400 {
-					t.Errorf("UpBytes: got %d, want 400 (latest)", r.UpBytes())
+				if r.UpBytes() != 750 {
+					t.Errorf("UpBytes: got %d, want 750 (100+250+400 accumulated)", r.UpBytes())
 				}
-				if r.DownBytes() != 800 {
-					t.Errorf("DownBytes: got %d, want 800", r.DownBytes())
+				if r.DownBytes() != 1500 {
+					t.Errorf("DownBytes: got %d, want 1500 (200+500+800 accumulated)", r.DownBytes())
 				}
 				if r.LastEventUnix() == 0 {
 					t.Error("LastEventUnix should be set")
