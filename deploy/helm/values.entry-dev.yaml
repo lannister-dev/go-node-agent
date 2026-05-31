@@ -78,7 +78,7 @@ entryProxy:
     handshakeServer: www.cloudflare.com
     handshakePort: 443
   secrets:
-    realitySecretName: go-node-agent-entry-dev-reality
+    realitySecretName: go-node-agent-entry-dev-bootstrap
 
 probe:
   clientIDs:
