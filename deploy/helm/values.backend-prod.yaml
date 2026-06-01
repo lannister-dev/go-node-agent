@@ -49,6 +49,7 @@ executor:
     inboundTagReality: vless-reality
     inboundTagXHTTP: vless-xhttp
     inboundTagTCP: vless-tcp
+    inboundTagWgInternal: vless-wg-internal
 
 secrets:
   bootstrapTokenSecretName: go-node-agent-backend-prod-bootstrap
@@ -70,3 +71,6 @@ podAnnotations:
   prometheus-env: prod
   prometheus-app: go-node-agent
   prometheus-role: backend
+
+wg:
+  enabled: true
