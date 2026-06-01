@@ -295,6 +295,18 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.entryProxy.secrets.realitySecretName }}
                   key: reality_short_id
+            {{- if .Values.entryProxy.goMemLimit }}
+            - name: GOMEMLIMIT
+              value: {{ .Values.entryProxy.goMemLimit | quote }}
+            {{- end }}
+            {{- if .Values.entryProxy.gogc }}
+            - name: GOGC
+              value: {{ .Values.entryProxy.gogc | quote }}
+            {{- end }}
+            {{- if .Values.entryProxy.debugAddr }}
+            - name: ENTRY_DEBUG_ADDR
+              value: {{ .Values.entryProxy.debugAddr | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.entryProxy.resources | nindent 12 }}
           volumeMounts:

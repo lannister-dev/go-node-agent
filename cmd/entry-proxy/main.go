@@ -5,11 +5,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/pprof"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/entryproxy"
 )
@@ -50,8 +57,49 @@ func run() error {
 		}
 	}()
 
+	if addr := os.Getenv("ENTRY_DEBUG_ADDR"); addr != "" {
+		go serveDebug(ctx, addr, log)
+	}
+
 	<-ctx.Done()
 	return p.Close()
+}
+
+// serveDebug exposes pprof and a memstats snapshot for on-demand profiling.
+// Off unless ENTRY_DEBUG_ADDR is set; reach it with a port-forward, e.g.
+// `go tool pprof http://localhost:6060/debug/pprof/heap`.
+func serveDebug(ctx context.Context, addr string, log *slog.Logger) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/memstats", func(w http.ResponseWriter, _ *http.Request) {
+		var m runtime.MemStats
+		runtime.ReadMemStats(&m)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"heap_alloc":    m.HeapAlloc,
+			"heap_inuse":    m.HeapInuse,
+			"heap_idle":     m.HeapIdle,
+			"heap_released": m.HeapReleased,
+			"stack_inuse":   m.StackInuse,
+			"sys":           m.Sys,
+			"num_gc":        m.NumGC,
+			"goroutines":    runtime.NumGoroutine(),
+			"gomemlimit":    debug.SetMemoryLimit(-1),
+		})
+	})
+	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	go func() {
+		<-ctx.Done()
+		_ = srv.Close()
+	}()
+	log.Info("debug server listening", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Error("debug server", "err", err)
+	}
 }
 
 func env(key, def string) string {

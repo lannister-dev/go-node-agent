@@ -136,6 +136,12 @@ entryProxy:
   secrets:
     # secret with keys: reality_private_key, reality_short_id
     realitySecretName: ""
+  # GOMEMLIMIT is a soft heap ceiling kept below the cgroup limit so the GC
+  # reclaims hard instead of OOMKilling (which would drop every live session).
+  # Keep it ~85% of resources.limits.memory.
+  goMemLimit: "220MiB"
+  gogc: "" # empty = Go default (100); lower (e.g. "50") trades CPU for lower RSS
+  debugAddr: "" # e.g. ":6060" to expose pprof/memstats for profiling
   resources:
     requests:
       cpu: 50m

@@ -39,6 +39,7 @@ type Config struct {
 	HandshakePort    uint16
 	HandshakeTimeout time.Duration // bound on the inbound REALITY handshake (default 10s)
 	DialTimeout      time.Duration // bound on dialing the backend (default 5s)
+	KeepAlivePeriod  time.Duration // TCP keepalive on both relay legs (default 30s, <0 disables)
 }
 
 type Proxy struct {
@@ -48,6 +49,7 @@ type Proxy struct {
 	service          *vless.Service[string]
 	handshakeTimeout time.Duration
 	dialTimeout      time.Duration
+	keepAlivePeriod  time.Duration
 
 	epoch int64
 
@@ -122,6 +124,10 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if dialTimeout <= 0 {
 		dialTimeout = 5 * time.Second
 	}
+	keepAlivePeriod := cfg.KeepAlivePeriod
+	if keepAlivePeriod == 0 {
+		keepAlivePeriod = 30 * time.Second
+	}
 
 	p := &Proxy{
 		cfg:              cfg,
@@ -130,6 +136,7 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 		epoch:            time.Now().UnixNano(),
 		handshakeTimeout: handshakeTimeout,
 		dialTimeout:      dialTimeout,
+		keepAlivePeriod:  keepAlivePeriod,
 		users:            map[string]string{},
 		backends:         map[string]ports.EntryBackend{},
 		route:            map[string]string{},
@@ -191,6 +198,12 @@ func (p *Proxy) serve(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
+	// Keepalive reaps clients that vanish without FIN/RST (mobile NAT timeout,
+	// sleep) — otherwise the relay goroutine blocks on Read forever and its
+	// goroutine, buffer and conn leak. This is the dominant entry-proxy heap
+	// growth at scale; a live-but-idle tunnel keeps answering probes and stays.
+	setKeepAlive(conn, p.keepAlivePeriod)
+
 	_ = conn.SetDeadline(time.Now().Add(p.handshakeTimeout))
 	tlsConn, err := singtls.ServerHandshake(ctx, conn, p.tls)
 	if err != nil {
@@ -231,6 +244,7 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 		_ = conn.Close()
 		return
 	}
+	setKeepAlive(raw, p.keepAlivePeriod)
 	// The entry authenticates to the backend as the user itself (flow is empty
 	// on the mesh leg — no TLS there). The client is keyed only by clientID.
 	vc, err := vless.NewClient(clientID, "", logger.NOP())
@@ -347,6 +361,26 @@ func (p *Proxy) syncUsersLocked() {
 	p.service.UpdateUsers(ids, ids, flows)
 }
 
+// setKeepAlive turns on TCP keepalive so a peer that disappears without a clean
+// close is detected and its relay torn down, instead of leaking the goroutine.
+// period <= 0 leaves the socket default untouched.
+func setKeepAlive(c net.Conn, period time.Duration) {
+	if period <= 0 {
+		return
+	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetKeepAlive(true)
+		_ = tc.SetKeepAlivePeriod(period)
+	}
+}
+
+// relayBufPool reuses copy buffers across connections so each relayed stream
+// doesn't allocate a fresh 32KiB buffer (io.Copy's default). At scale this is
+// the bulk of per-connection heap churn — pooling keeps GC pressure flat as the
+// user count grows. The optimized WriteTo/ReaderFrom path (when a conn supports
+// it) ignores the buffer, so pooling never hurts.
+var relayBufPool = sync.Pool{New: func() any { b := make([]byte, 32*1024); return &b }}
+
 // relay splices client and backend, counting up/down bytes. One direction
 // ending half-closes its destination (CloseWrite) so the other keeps flowing;
 // a full close on either end would tear down live traffic mid-session.
@@ -357,7 +391,9 @@ func relay(client, backend net.Conn, stat *connStat) {
 	wg.Add(2)
 	cp := func(dst, src net.Conn, counter *atomic.Uint64) {
 		defer wg.Done()
-		_, _ = io.Copy(countingWriter{dst, counter}, src)
+		bufp := relayBufPool.Get().(*[]byte)
+		_, _ = io.CopyBuffer(countingWriter{dst, counter}, src, *bufp)
+		relayBufPool.Put(bufp)
 		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {
