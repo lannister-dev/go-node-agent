@@ -46,7 +46,7 @@ env:
 executor:
   enabled: true
   xray:
-    grpcAddr: vpn-xray-xray.vpn-prod.svc.cluster.local:10085
+    grpcAddr: $(NODE_IP):10085
     inboundTag: vless-ws
     inboundTagWS: vless-ws
     inboundTagReality: vless-reality
