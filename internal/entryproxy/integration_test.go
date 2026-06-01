@@ -94,6 +94,10 @@ func TestIntegrationAgentRoutesThroughProxy(t *testing.T) {
 		userLive = "dddddddd-dddd-dddd-dddd-dddddddddddd"
 	)
 	all := []string{userA, userB, userLive}
+	// The executor registers REALITY users with the vision flow; a real client
+	// connects with the same flow, so the test client must too. (Smoke drives
+	// AddUser directly with an empty flow, hence its plain helper.)
+	visionFlow := singboxgen.FlowForTransport(domain.TransportReality)
 
 	rixBE := taggedBackend(t, "RIX", all...)
 	zrhBE := taggedBackend(t, "ZRH", all...)
@@ -126,12 +130,12 @@ func TestIntegrationAgentRoutesThroughProxy(t *testing.T) {
 	if err := actions.RebuildFromStore(ctx); err != nil {
 		t.Fatalf("rebuild: %v", err)
 	}
-	if tag := readTag(t, realityVlessClient(t, proxyAddr, pub, userA, "1.1.1.1:80")); tag != "ZRH" {
+	if tag := readTag(t, realityVlessClientFlow(t, proxyAddr, pub, userA, visionFlow, "1.1.1.1:80")); tag != "ZRH" {
 		t.Fatalf("override not honored: userA landed on %q, want ZRH", tag)
 	}
 
 	// Open a live connection for userLive and prove it survives a runtime add.
-	live := realityVlessClient(t, proxyAddr, pub, userLive, echo)
+	live := realityVlessClientFlow(t, proxyAddr, pub, userLive, visionFlow, echo)
 	roundtrip(t, live, "live-before")
 
 	// (B) A brand-new user arrives at runtime via SimpleApply -> must connect and
@@ -142,7 +146,7 @@ func TestIntegrationAgentRoutesThroughProxy(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("simple-apply new user: %v", err)
 	}
-	if tag := readTag(t, realityVlessClient(t, proxyAddr, pub, userB, "1.1.1.1:80")); tag != "RIX" {
+	if tag := readTag(t, realityVlessClientFlow(t, proxyAddr, pub, userB, visionFlow, "1.1.1.1:80")); tag != "RIX" {
 		t.Fatalf("runtime user routed to %q, want RIX", tag)
 	}
 
@@ -157,7 +161,7 @@ func TestIntegrationAgentRoutesThroughProxy(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("simple-apply route change: %v", err)
 	}
-	if tag := readTag(t, realityVlessClient(t, proxyAddr, pub, userA, "1.1.1.1:80")); tag != "RIX" {
+	if tag := readTag(t, realityVlessClientFlow(t, proxyAddr, pub, userA, visionFlow, "1.1.1.1:80")); tag != "RIX" {
 		t.Fatalf("route switch failed: userA landed on %q, want RIX", tag)
 	}
 }
