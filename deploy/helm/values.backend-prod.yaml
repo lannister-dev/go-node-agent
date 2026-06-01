@@ -42,6 +42,8 @@ env:
   natsSnapshotPrefix: prod.agent.snapshots
   natsHeartbeatPrefix: prod.agent.heartbeats
   natsSyncReportPrefix: prod.agent.sync_reports
+  natsNodesTrafficSubject: prod.nodes.traffic
+  natsUsersTrafficSubject: prod.users.traffic
 
 executor:
   enabled: true
