@@ -24,6 +24,7 @@ import (
 	vmess "github.com/sagernet/sing-vmess"
 	"github.com/sagernet/sing-vmess/vless"
 	"github.com/sagernet/sing/common/auth"
+	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -280,8 +281,57 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 	relay(conn, up, stat)
 }
 
-func (p *Proxy) handlePacket(context.Context, N.PacketConn, adapter.InboundContext, N.CloseHandlerFunc) {
-	// UDP not used by the entry profile yet.
+func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.InboundContext, _ N.CloseHandlerFunc) {
+	clientID, ok := auth.UserFromContext[string](ctx)
+	if !ok {
+		_ = conn.Close()
+		return
+	}
+
+	p.mu.RLock()
+	be, ok := p.backends[p.route[clientID]]
+	p.mu.RUnlock()
+	if !ok {
+		p.log.Warn("no backend for user (udp)", "client_id", clientID)
+		_ = conn.Close()
+		return
+	}
+
+	dctx, cancel := context.WithTimeout(ctx, p.dialTimeout)
+	raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port))))
+	cancel()
+	if err != nil {
+		p.log.Warn("dial backend failed (udp)", "backend", be.ID, "err", err)
+		_ = conn.Close()
+		return
+	}
+	setKeepAlive(raw, p.keepAlivePeriod)
+	vc, err := vless.NewClient(clientID, "", logger.NOP())
+	if err != nil {
+		_ = raw.Close()
+		_ = conn.Close()
+		return
+	}
+	up, err := vc.DialEarlyXUDPPacketConn(raw, md.Destination)
+	if err != nil {
+		_ = raw.Close()
+		_ = conn.Close()
+		return
+	}
+
+	p.mu.Lock()
+	p.nextID++
+	stat := &connStat{id: p.nextID, clientID: clientID, backendID: be.ID}
+	p.active[stat.id] = stat
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.active, stat.id)
+		p.mu.Unlock()
+		_ = raw.Close()
+		_ = conn.Close()
+	}()
+	_ = bufio.CopyPacketConn(ctx, conn, up)
 }
 
 func (p *Proxy) AddUser(_ context.Context, clientID, flow string) error {
