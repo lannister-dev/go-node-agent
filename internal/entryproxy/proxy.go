@@ -21,6 +21,7 @@ import (
 	singtls "github.com/sagernet/sing-box/common/tls"
 	singlog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	vmess "github.com/sagernet/sing-vmess"
 	"github.com/sagernet/sing-vmess/vless"
 	"github.com/sagernet/sing/common/auth"
 	"github.com/sagernet/sing/common/logger"
@@ -40,6 +41,7 @@ type Config struct {
 	HandshakeTimeout time.Duration // bound on the inbound REALITY handshake (default 10s)
 	DialTimeout      time.Duration // bound on dialing the backend (default 5s)
 	KeepAlivePeriod  time.Duration // TCP keepalive on both relay legs (default 30s, <0 disables)
+	MuxIdleTimeout   time.Duration // bound mux recv loop to reap vanished-client goroutines (default 5m, <=0 disables)
 }
 
 type Proxy struct {
@@ -128,6 +130,11 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if keepAlivePeriod == 0 {
 		keepAlivePeriod = 30 * time.Second
 	}
+	muxIdleTimeout := cfg.MuxIdleTimeout
+	if muxIdleTimeout == 0 {
+		muxIdleTimeout = 5 * time.Minute
+	}
+	vmess.ServerReadTimeout = muxIdleTimeout
 
 	p := &Proxy{
 		cfg:              cfg,

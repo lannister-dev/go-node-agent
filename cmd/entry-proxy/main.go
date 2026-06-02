@@ -38,6 +38,7 @@ func run() error {
 		ServerName:      env("REALITY_SERVER_NAME", "www.cloudflare.com"),
 		HandshakeServer: os.Getenv("REALITY_HANDSHAKE_SERVER"),
 		HandshakePort:   parsePort(env("REALITY_HANDSHAKE_PORT", "443")),
+		MuxIdleTimeout:  parseDuration(env("ENTRY_MUX_IDLE_TIMEOUT", "5m")),
 	}, log)
 	if err != nil {
 		return err
@@ -115,4 +116,12 @@ func parsePort(s string) uint16 {
 		return 443
 	}
 	return uint16(n)
+}
+
+func parseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 5 * time.Minute
+	}
+	return d
 }
