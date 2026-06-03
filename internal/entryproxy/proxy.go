@@ -52,6 +52,7 @@ type Proxy struct {
 	service          *vless.Service[string]
 	handshakeTimeout time.Duration
 	dialTimeout      time.Duration
+	dialAttemptTO    time.Duration
 	keepAlivePeriod  time.Duration
 
 	epoch int64
@@ -127,6 +128,10 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if dialTimeout <= 0 {
 		dialTimeout = 5 * time.Second
 	}
+	dialAttemptTO := 2 * time.Second
+	if dialAttemptTO > dialTimeout {
+		dialAttemptTO = dialTimeout
+	}
 	keepAlivePeriod := cfg.KeepAlivePeriod
 	if keepAlivePeriod == 0 {
 		keepAlivePeriod = 30 * time.Second
@@ -144,6 +149,7 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 		epoch:            time.Now().UnixNano(),
 		handshakeTimeout: handshakeTimeout,
 		dialTimeout:      dialTimeout,
+		dialAttemptTO:    dialAttemptTO,
 		keepAlivePeriod:  keepAlivePeriod,
 		users:            map[string]string{},
 		backends:         map[string]ports.EntryBackend{},
@@ -228,6 +234,30 @@ func (p *Proxy) serve(ctx context.Context, conn net.Conn) {
 }
 
 // handleConn is the dispatcher: the authenticated user is the routing key.
+func (p *Proxy) dialBackend(ctx context.Context, be ports.EntryBackend) (net.Conn, error) {
+	addr := net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port)))
+	deadline := time.Now().Add(p.dialTimeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		attemptTO := time.Until(deadline)
+		if attemptTO > p.dialAttemptTO {
+			attemptTO = p.dialAttemptTO
+		}
+		dctx, cancel := context.WithTimeout(ctx, attemptTO)
+		raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", addr)
+		cancel()
+		if err == nil {
+			setKeepAlive(raw, p.keepAlivePeriod)
+			return raw, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, lastErr
+}
+
 func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	clientID, ok := auth.UserFromContext[string](ctx)
 	if !ok {
@@ -244,17 +274,12 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 		return
 	}
 
-	dctx, cancel := context.WithTimeout(ctx, p.dialTimeout)
-	raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port))))
-	cancel()
+	raw, err := p.dialBackend(ctx, be)
 	if err != nil {
 		p.log.Warn("dial backend failed", "backend", be.ID, "err", err)
 		_ = conn.Close()
 		return
 	}
-	setKeepAlive(raw, p.keepAlivePeriod)
-	// The entry authenticates to the backend as the user itself (flow is empty
-	// on the mesh leg — no TLS there). The client is keyed only by clientID.
 	vc, err := vless.NewClient(clientID, "", logger.NOP())
 	if err != nil {
 		_ = raw.Close()
@@ -297,15 +322,12 @@ func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.
 		return
 	}
 
-	dctx, cancel := context.WithTimeout(ctx, p.dialTimeout)
-	raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port))))
-	cancel()
+	raw, err := p.dialBackend(ctx, be)
 	if err != nil {
 		p.log.Warn("dial backend failed (udp)", "backend", be.ID, "err", err)
 		_ = conn.Close()
 		return
 	}
-	setKeepAlive(raw, p.keepAlivePeriod)
 	vc, err := vless.NewClient(clientID, "", logger.NOP())
 	if err != nil {
 		_ = raw.Close()

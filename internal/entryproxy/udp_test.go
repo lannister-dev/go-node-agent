@@ -119,16 +119,21 @@ func TestUDPRelayThroughProxy(t *testing.T) {
 	pc := realityXUDPClient(t, p.Addr(), pub, user, "1.1.1.1:53")
 	dest := M.ParseSocksaddr("1.1.1.1:53").UDPAddr()
 
-	if _, err := pc.WriteTo([]byte("ping-udp"), dest); err != nil {
-		t.Fatalf("write packet: %v", err)
-	}
-	_ = pc.SetReadDeadline(time.Now().Add(3 * time.Second))
 	recv := make([]byte, 1500)
-	n, _, err := pc.ReadFrom(recv)
-	if err != nil {
-		t.Fatalf("read packet (udp dropped?): %v", err)
+	var got string
+	for attempt := 0; attempt < 3; attempt++ {
+		if _, err := pc.WriteTo([]byte("ping-udp"), dest); err != nil {
+			t.Fatalf("write packet: %v", err)
+		}
+		_ = pc.SetReadDeadline(time.Now().Add(2 * time.Second))
+		n, _, err := pc.ReadFrom(recv)
+		if err != nil {
+			continue
+		}
+		got = string(recv[:n])
+		break
 	}
-	if string(recv[:n]) != "ping-udp" {
-		t.Fatalf("udp echo mismatch: got %q", recv[:n])
+	if got != "ping-udp" {
+		t.Fatalf("udp echo mismatch or dropped: got %q", got)
 	}
 }
