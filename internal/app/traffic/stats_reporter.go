@@ -115,6 +115,7 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	byBackend := map[string]int{}
 	byClient := map[string]int{}
 	total := 0
+	var uploadTotal, downloadTotal uint64
 	for _, c := range snap.Conns {
 		// Best-effort: parsed user is the first b-<uuid>-... in chains.
 		u, _, ok := pickClientAndBackend(c.Chains)
@@ -122,6 +123,8 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 			continue
 		}
 		total++
+		uploadTotal += c.Upload
+		downloadTotal += c.Download
 		byBackend[r.aggregatedBackendTag(c.Chains)]++
 		if ok && u != "" {
 			byClient[u]++
@@ -129,12 +132,14 @@ func (r *StatsReporter) tick(ctx context.Context) error {
 	}
 
 	payload := statsPayload{
-		NodeID:      string(r.cfg.NodeID),
-		Ts:          time.Now().UTC().Format(time.RFC3339Nano),
-		Total:       total,
-		ByBackend:   byBackend,
-		ByClientID:  byClient,
-		UniqueUsers: len(byClient),
+		NodeID:        string(r.cfg.NodeID),
+		Ts:            time.Now().UTC().Format(time.RFC3339Nano),
+		Total:         total,
+		UploadTotal:   uploadTotal,
+		DownloadTotal: downloadTotal,
+		ByBackend:     byBackend,
+		ByClientID:    byClient,
+		UniqueUsers:   len(byClient),
 	}
 	data, err := json.Marshal(payload)
 	if err != nil {
