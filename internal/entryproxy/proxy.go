@@ -328,18 +328,6 @@ func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.
 		_ = conn.Close()
 		return
 	}
-	vc, err := vless.NewClient(clientID, "", logger.NOP())
-	if err != nil {
-		_ = raw.Close()
-		_ = conn.Close()
-		return
-	}
-	up, err := vc.DialEarlyXUDPPacketConn(raw, md.Destination)
-	if err != nil {
-		_ = raw.Close()
-		_ = conn.Close()
-		return
-	}
 
 	p.mu.Lock()
 	p.nextID++
@@ -353,6 +341,20 @@ func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.
 		_ = raw.Close()
 		_ = conn.Close()
 	}()
+
+	// Count bytes on the mesh carrier: Write is the upload leg (client->backend),
+	// Read the download leg. Tallying here (a plain net.Conn) instead of on the
+	// packet conn leaves sing's XUDP headroom/fast paths untouched; the count is
+	// wire bytes including the small XUDP framing overhead.
+	counted := &countingConn{Conn: raw, up: &stat.up, down: &stat.down}
+	vc, err := vless.NewClient(clientID, "", logger.NOP())
+	if err != nil {
+		return
+	}
+	up, err := vc.DialEarlyXUDPPacketConn(counted, md.Destination)
+	if err != nil {
+		return
+	}
 	_ = bufio.CopyPacketConn(ctx, conn, up)
 }
 
@@ -494,6 +496,32 @@ func (c countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	if n > 0 {
 		c.n.Add(uint64(n))
+	}
+	return n, err
+}
+
+// countingConn tallies UDP relay bytes on the backend mesh carrier (a plain
+// net.Conn). Write is the upload leg (client->backend), Read the download leg.
+// The XUDP packet conn is layered on top of this, so the tally is wire bytes
+// including the small per-packet framing overhead.
+type countingConn struct {
+	net.Conn
+	up   *atomic.Uint64
+	down *atomic.Uint64
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.down.Add(uint64(n))
+	}
+	return n, err
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		c.up.Add(uint64(n))
 	}
 	return n, err
 }

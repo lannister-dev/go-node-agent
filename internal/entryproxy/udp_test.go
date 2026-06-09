@@ -136,4 +136,28 @@ func TestUDPRelayThroughProxy(t *testing.T) {
 	if got != "ping-udp" {
 		t.Fatalf("udp echo mismatch or dropped: got %q", got)
 	}
+
+	// UDP byte accounting must be non-zero after a round-trip (regression: the
+	// packet relay used to leave Upload/Download at 0, so entry stats lost all
+	// UDP volume). Poll briefly — the download counter is set in the relay
+	// goroutine and may lag the client read.
+	var up, down uint64
+	for i := 0; i < 50; i++ {
+		conns, cerr := p.ActiveConnections(ctx)
+		if cerr != nil {
+			t.Fatalf("active connections: %v", cerr)
+		}
+		up, down = 0, 0
+		for _, c := range conns {
+			up += c.Upload
+			down += c.Download
+		}
+		if up > 0 && down > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if up == 0 || down == 0 {
+		t.Fatalf("udp byte accounting zero: up=%d down=%d (want both > 0)", up, down)
+	}
 }
