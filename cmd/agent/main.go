@@ -356,22 +356,26 @@ func run() error {
 	}
 
 	var trafficPub *traffic.Publisher
-	if trafficReporter != nil {
-		var connsSrc traffic.ConnectionsSource
-		if stack != nil {
-			switch {
-			case stack.singbox != nil:
-				connsSrc = stack.singbox
-			case stack.entryProxy != nil:
-				connsSrc = stack.entryProxy
-			}
+	var trafficConnsSrc traffic.ConnectionsSource
+	if stack != nil {
+		switch {
+		case stack.singbox != nil:
+			trafficConnsSrc = stack.singbox
+		case stack.entryProxy != nil:
+			trafficConnsSrc = stack.entryProxy
 		}
+	}
+	// The Publisher feeds node_traffic_usage (per entry/backend bytes for the
+	// admin dashboard). It must run for the embedded entry-proxy too — gating it
+	// behind the sing-box-only trafficReporter left entry nodes publishing no
+	// traffic after the sing-box cutover.
+	if trafficConnsSrc != nil {
 		trafficPub, err = traffic.NewPublisher(traffic.PublisherConfig{
 			NodeID:   nodeID,
 			NodeRole: cfg.NodeRole,
 			Subject:  cfg.NATSNodesTrafficSubject,
 			Interval: cfg.TrafficInterval,
-		}, natsTr, connsSrc, log)
+		}, natsTr, trafficConnsSrc, log)
 		if err != nil {
 			return err
 		}
