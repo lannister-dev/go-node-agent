@@ -187,6 +187,10 @@ func entryBackend(t *testing.T, id, addr string) ports.EntryBackend {
 
 // realityVlessClient connects through the entry proxy as clientID to dst.
 func realityVlessClient(t *testing.T, proxyAddr, pubKey, clientID, dst string) net.Conn {
+	return realityVlessClientFlow(t, proxyAddr, pubKey, clientID, userFlow, dst)
+}
+
+func realityVlessClientFlow(t *testing.T, proxyAddr, pubKey, clientID, flow, dst string) net.Conn {
 	t.Helper()
 	tcp, err := net.Dial("tcp", proxyAddr)
 	if err != nil {
@@ -205,7 +209,7 @@ func realityVlessClient(t *testing.T, proxyAddr, pubKey, clientID, dst string) n
 	if err != nil {
 		t.Fatalf("reality handshake: %v", err)
 	}
-	vc, err := vless.NewClient(clientID, userFlow, logger.NOP())
+	vc, err := vless.NewClient(clientID, flow, logger.NOP())
 	if err != nil {
 		t.Fatalf("vless client: %v", err)
 	}

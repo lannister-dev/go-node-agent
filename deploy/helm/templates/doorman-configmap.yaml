@@ -1,0 +1,37 @@
+{{- if .Values.doorman.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "go-node-agent.fullname" . }}-doorman
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "go-node-agent.labels" . | nindent 4 }}
+data:
+  config.json: |
+    {
+      "log": {"loglevel": "warning"},
+      "inbounds": [
+        {
+          "tag": "doorman-xhttp",
+          "listen": "0.0.0.0",
+          "port": {{ .Values.doorman.hostPort }},
+          "protocol": "dokodemo-door",
+          "settings": {"address": "127.0.0.1", "port": {{ .Values.doorman.targetPort }}, "network": "tcp"},
+          "streamSettings": {
+            "network": "xhttp",
+            "xhttpSettings": {
+              "path": {{ .Values.doorman.xhttp.path | quote }},
+              "mode": "packet-up",
+              "xPaddingKey": {{ .Values.doorman.xhttp.paddingKey | quote }},
+              "xPaddingHeader": {{ .Values.doorman.xhttp.paddingHeader | quote }},
+              "xPaddingMethod": "tokenish",
+              "uplinkHTTPMethod": "GET",
+              "xPaddingObfsMode": true,
+              "xPaddingPlacement": "queryInHeader"
+            }
+          }
+        }
+      ],
+      "outbounds": [{"protocol": "freedom", "tag": "freedom"}]
+    }
+{{- end }}

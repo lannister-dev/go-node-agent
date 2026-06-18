@@ -129,6 +129,7 @@ entryProxy:
     pullPolicy: IfNotPresent
   socketDir: /var/run/entry-proxy
   listenAddr: ":443"
+  plainListenAddr: "" # plain-TCP VLESS inbound fed by the doorman sidecar (e.g. "127.0.0.1:10005"); empty disables
   reality:
     serverName: www.cloudflare.com
     handshakeServer: www.cloudflare.com
@@ -136,6 +137,12 @@ entryProxy:
   secrets:
     # secret with keys: reality_private_key, reality_short_id
     realitySecretName: ""
+  # GOMEMLIMIT is a soft heap ceiling kept below the cgroup limit so the GC
+  # reclaims hard instead of OOMKilling (which would drop every live session).
+  # Keep it ~85% of resources.limits.memory.
+  goMemLimit: "220MiB"
+  gogc: "" # empty = Go default (100); lower (e.g. "50") trades CPU for lower RSS
+  debugAddr: "" # e.g. ":6060" to expose pprof/memstats for profiling
   resources:
     requests:
       cpu: 50m
@@ -143,6 +150,29 @@ entryProxy:
     limits:
       cpu: 500m
       memory: 256Mi
+
+# doorman: xray sidecar that terminates the XHTTP transport (behind a CDN) and
+# forwards the raw VLESS stream to entryProxy.plainListenAddr. Only for CDN-fronted
+# whitelist-entry nodes.
+doorman:
+  enabled: false
+  image:
+    repository: ghcr.io/xtls/xray-core
+    tag: "25.6.8"
+    pullPolicy: IfNotPresent
+  hostPort: 80        # CDN origin hits this (CDN terminates client TLS; origin is plain HTTP)
+  targetPort: 10005   # must match the port in entryProxy.plainListenAddr
+  xhttp:
+    path: "/"
+    paddingKey: "_dc"
+    paddingHeader: "X-Client-Version"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 96Mi
 
 probes:
   liveness:

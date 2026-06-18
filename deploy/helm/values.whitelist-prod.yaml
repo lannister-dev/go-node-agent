@@ -1,0 +1,95 @@
+# go-node-agent — whitelist-entry mode, prod (XHTTP behind Yandex CDN)
+#
+# Same as entry-prod, but client-facing transport is XHTTP terminated by the
+# doorman sidecar (xray dokodemo+xhttp) which forwards raw VLESS to the
+# entry-proxy plain listener. Per-user routing to backends is unchanged.
+#
+# Deploy:
+#   helm upgrade --install go-node-agent-whitelist-prod deploy/helm/ \
+#     -n vpn-prod -f deploy/helm/values.whitelist-prod.yaml
+
+image:
+  repository: harbor.lannister-dev.ru/vpn-service/go-node-agent
+  tag: prod
+  pullPolicy: Always
+
+imagePullSecrets:
+  - name: harbor-registry
+
+nodeSelector:
+  role: vpn
+  channel: prod
+  traffic_role: whitelist_entry
+
+hostNetwork: true
+dnsPolicy: ClusterFirstWithHostNet
+
+env:
+  controlApiURL: http://control-api.vpn-prod.svc.cluster.local:8000
+  natsURL: nats://nats.nats.svc.cluster.local:4222
+  nodeRole: entry
+  logLevel: info
+  logFormat: json
+  heartbeatInterval: 10s
+  natsCommandPrefix: prod.agent.placements
+  natsResultPrefix: prod.agent.placement_results
+  natsSnapshotPrefix: prod.agent.snapshots
+  natsHeartbeatPrefix: prod.agent.heartbeats
+  natsSyncReportPrefix: prod.agent.sync_reports
+  natsNodesTrafficSubject: prod.nodes.traffic
+  natsUsersTrafficSubject: prod.users.traffic
+
+executor:
+  enabled: true
+  singbox:
+    inboundTag: vless-reality-in
+    listenAddress: "::"
+    listenPort: 443
+    logLevel: info
+
+secrets:
+  bootstrapTokenSecretName: go-node-agent-whitelist-prod-bootstrap
+  bootstrapTokenSecretKey: token
+  natsUrlSecretName: go-node-agent-whitelist-prod-bootstrap
+  natsUrlSecretKey: NATS_URL
+
+externalSecret:
+  enabled: true
+  storeName: vault
+  vaultPath: go-node-agent/prod/env
+  targetName: go-node-agent-whitelist-prod-bootstrap
+  refreshInterval: 5m
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: "/metrics"
+  prometheus-env: prod
+  prometheus-app: go-node-agent
+  prometheus-role: whitelist-entry
+
+wg:
+  enabled: true
+
+entryProxy:
+  enabled: true
+  image:
+    repository: harbor.lannister-dev.ru/vpn-service/entry-proxy
+    tag: prod
+    pullPolicy: Always
+  plainListenAddr: "127.0.0.1:10005"
+  reality:
+    serverName: www.cloudflare.com
+    handshakeServer: www.cloudflare.com
+    handshakePort: 443
+  secrets:
+    realitySecretName: go-node-agent-whitelist-prod-bootstrap
+
+doorman:
+  enabled: true
+  hostPort: 80
+  targetPort: 10005
+  xhttp:
+    path: "/"
+    paddingKey: "_dc"
+    paddingHeader: "X-Client-Version"

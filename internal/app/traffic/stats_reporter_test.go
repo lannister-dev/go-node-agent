@@ -127,6 +127,41 @@ func TestStatsReporter_ExcludesProbe(t *testing.T) {
 	}
 }
 
+func TestStatsReporter_SumsBytes(t *testing.T) {
+	const (
+		nodeID = "11111111-1111-1111-1111-111111111111"
+		user   = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+		probe  = "99999999-9999-9999-9999-999999999999"
+		bA     = "44444444-4444-4444-4444-444444444444"
+	)
+	conns := &fakeConns{snaps: []ports.SingBoxConnections{
+		{Conns: []ports.SingBoxConn{
+			{ID: "c1", Chains: []string{"b-" + user + "-" + bA}, Upload: 100, Download: 900},
+			{ID: "c2", Chains: []string{"b-" + user + "-" + bA}, Upload: 23, Download: 77},
+			{ID: "c3", Chains: []string{"b-" + probe + "-" + bA}, Upload: 5000, Download: 5000},
+		}},
+	}}
+	kv := &kvCapture{}
+	registry := &fakeBackends{names: map[string]string{bA: "alpha-backend-01"}}
+	r, err := NewStatsReporter(StatsReporterConfig{NodeID: nodeID, ProbeClientIDs: []string{probe}}, kv, conns, registry, silentLog())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.tick(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var p statsPayload
+	if err := json.Unmarshal(kv.entries[StatsKvBucket+"/node."+nodeID], &p); err != nil {
+		t.Fatal(err)
+	}
+	if p.UploadTotal != 123 {
+		t.Errorf("upload_total=%d want 123 (probe excluded)", p.UploadTotal)
+	}
+	if p.DownloadTotal != 977 {
+		t.Errorf("download_total=%d want 977 (probe excluded)", p.DownloadTotal)
+	}
+}
+
 func TestAggregatedBackendTag(t *testing.T) {
 	const (
 		u = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"

@@ -201,8 +201,6 @@ github.com/sagernet/sing-box v1.13.11 h1:GsEAtbSWS1s+fh5JznYVWoLNRotT/NsiaMVC72W
 github.com/sagernet/sing-box v1.13.11/go.mod h1:qY9wfv/jg4/V2z/sw3NBkBAsfADzGT41aU1Dbhw4WWI=
 github.com/sagernet/sing-tun v0.8.9 h1:ixFKKUGdVcJl4wb0xbL36hobiw9l6DIH497EQf5ILpM=
 github.com/sagernet/sing-tun v0.8.9/go.mod h1:QvarqUtHfj1ULaRR+6kZOS/OoCE+pYGq67A5tyIy+dQ=
-github.com/sagernet/sing-vmess v0.2.8-0.20250909125414-3aed155119a1 h1:aSwUNYUkVyVvdmBSufR8/nRFonwJeKSIROxHcm5br9o=
-github.com/sagernet/sing-vmess v0.2.8-0.20250909125414-3aed155119a1/go.mod h1:P11scgTxMxVVQ8dlM27yNm3Cro40mD0+gHbnqrNGDuY=
 github.com/shirou/gopsutil/v4 v4.26.4 h1:B4SXVbcwTyrocPHEmWBC4uCYr4Xcu3MK1TXqbprAOWY=
 github.com/shirou/gopsutil/v4 v4.26.4/go.mod h1:LZ6ewCSkBqUpvSOf+LsTGnRinC6iaNUNMGBtDkJBaLQ=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=

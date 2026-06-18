@@ -21,8 +21,10 @@ import (
 	singtls "github.com/sagernet/sing-box/common/tls"
 	singlog "github.com/sagernet/sing-box/log"
 	"github.com/sagernet/sing-box/option"
+	vmess "github.com/sagernet/sing-vmess"
 	"github.com/sagernet/sing-vmess/vless"
 	"github.com/sagernet/sing/common/auth"
+	"github.com/sagernet/sing/common/bufio"
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -32,6 +34,7 @@ import (
 
 type Config struct {
 	ListenAddr       string // ":443"
+	PlainListenAddr  string // plain-TCP VLESS inbound (no REALITY); empty disables
 	RealityKey       string // REALITY private key (base64)
 	ShortID          string
 	ServerName       string // e.g. www.cloudflare.com
@@ -39,6 +42,8 @@ type Config struct {
 	HandshakePort    uint16
 	HandshakeTimeout time.Duration // bound on the inbound REALITY handshake (default 10s)
 	DialTimeout      time.Duration // bound on dialing the backend (default 5s)
+	KeepAlivePeriod  time.Duration // TCP keepalive on both relay legs (default 30s, <0 disables)
+	MuxIdleTimeout   time.Duration // bound mux recv loop to reap vanished-client goroutines (default 5m, <=0 disables)
 }
 
 type Proxy struct {
@@ -48,6 +53,8 @@ type Proxy struct {
 	service          *vless.Service[string]
 	handshakeTimeout time.Duration
 	dialTimeout      time.Duration
+	dialAttemptTO    time.Duration
+	keepAlivePeriod  time.Duration
 
 	epoch int64
 
@@ -58,7 +65,8 @@ type Proxy struct {
 	active   map[uint64]*connStat
 	nextID   uint64
 
-	ln net.Listener
+	ln      net.Listener
+	plainLn net.Listener
 }
 
 type connStat struct {
@@ -122,6 +130,19 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 	if dialTimeout <= 0 {
 		dialTimeout = 5 * time.Second
 	}
+	dialAttemptTO := 2 * time.Second
+	if dialAttemptTO > dialTimeout {
+		dialAttemptTO = dialTimeout
+	}
+	keepAlivePeriod := cfg.KeepAlivePeriod
+	if keepAlivePeriod == 0 {
+		keepAlivePeriod = 30 * time.Second
+	}
+	muxIdleTimeout := cfg.MuxIdleTimeout
+	if muxIdleTimeout == 0 {
+		muxIdleTimeout = 5 * time.Minute
+	}
+	vmess.ServerReadTimeout = muxIdleTimeout
 
 	p := &Proxy{
 		cfg:              cfg,
@@ -130,6 +151,8 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 		epoch:            time.Now().UnixNano(),
 		handshakeTimeout: handshakeTimeout,
 		dialTimeout:      dialTimeout,
+		dialAttemptTO:    dialAttemptTO,
+		keepAlivePeriod:  keepAlivePeriod,
 		users:            map[string]string{},
 		backends:         map[string]ports.EntryBackend{},
 		route:            map[string]string{},
@@ -151,14 +174,31 @@ func (p *Proxy) Start(ctx context.Context) error {
 	p.ln = ln
 	p.log.Info("entry proxy listening", "addr", p.cfg.ListenAddr)
 	go p.acceptLoop(ctx)
+
+	if p.cfg.PlainListenAddr != "" {
+		pln, err := net.Listen("tcp", p.cfg.PlainListenAddr)
+		if err != nil {
+			_ = p.ln.Close()
+			return fmt.Errorf("entryproxy: listen plain %s: %w", p.cfg.PlainListenAddr, err)
+		}
+		p.plainLn = pln
+		p.log.Info("entry proxy plain-VLESS listening", "addr", p.cfg.PlainListenAddr)
+		go p.acceptLoopPlain(ctx)
+	}
 	return nil
 }
 
 func (p *Proxy) Close() error {
-	if p.ln != nil {
-		return p.ln.Close()
+	var err error
+	if p.plainLn != nil {
+		err = p.plainLn.Close()
 	}
-	return nil
+	if p.ln != nil {
+		if cerr := p.ln.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}
+	return err
 }
 
 // Addr is the bound listen address (useful when ListenAddr uses port 0).
@@ -191,6 +231,12 @@ func (p *Proxy) serve(ctx context.Context, conn net.Conn) {
 		}
 	}()
 
+	// Keepalive reaps clients that vanish without FIN/RST (mobile NAT timeout,
+	// sleep) — otherwise the relay goroutine blocks on Read forever and its
+	// goroutine, buffer and conn leak. This is the dominant entry-proxy heap
+	// growth at scale; a live-but-idle tunnel keeps answering probes and stays.
+	setKeepAlive(conn, p.keepAlivePeriod)
+
 	_ = conn.SetDeadline(time.Now().Add(p.handshakeTimeout))
 	tlsConn, err := singtls.ServerHandshake(ctx, conn, p.tls)
 	if err != nil {
@@ -206,7 +252,62 @@ func (p *Proxy) serve(ctx context.Context, conn net.Conn) {
 	}
 }
 
+func (p *Proxy) acceptLoopPlain(ctx context.Context) {
+	for {
+		conn, err := p.plainLn.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			p.log.Warn("plain accept failed", "err", err)
+			return
+		}
+		go p.servePlain(ctx, conn)
+	}
+}
+
+func (p *Proxy) servePlain(ctx context.Context, conn net.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.log.Error("servePlain panic recovered", "err", r)
+			_ = conn.Close()
+		}
+	}()
+
+	setKeepAlive(conn, p.keepAlivePeriod)
+	source := M.SocksaddrFromNet(conn.RemoteAddr())
+	md := adapter.InboundContext{Source: source}
+	onClose := func(error) {}
+	if err := p.service.NewConnection(adapter.WithContext(ctx, &md), conn, source, onClose); err != nil {
+		_ = conn.Close()
+	}
+}
+
 // handleConn is the dispatcher: the authenticated user is the routing key.
+func (p *Proxy) dialBackend(ctx context.Context, be ports.EntryBackend) (net.Conn, error) {
+	addr := net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port)))
+	deadline := time.Now().Add(p.dialTimeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		attemptTO := time.Until(deadline)
+		if attemptTO > p.dialAttemptTO {
+			attemptTO = p.dialAttemptTO
+		}
+		dctx, cancel := context.WithTimeout(ctx, attemptTO)
+		raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", addr)
+		cancel()
+		if err == nil {
+			setKeepAlive(raw, p.keepAlivePeriod)
+			return raw, nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			break
+		}
+	}
+	return nil, lastErr
+}
+
 func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.InboundContext, onClose N.CloseHandlerFunc) {
 	clientID, ok := auth.UserFromContext[string](ctx)
 	if !ok {
@@ -223,16 +324,12 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 		return
 	}
 
-	dctx, cancel := context.WithTimeout(ctx, p.dialTimeout)
-	raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port))))
-	cancel()
+	raw, err := p.dialBackend(ctx, be)
 	if err != nil {
 		p.log.Warn("dial backend failed", "backend", be.ID, "err", err)
 		_ = conn.Close()
 		return
 	}
-	// The entry authenticates to the backend as the user itself (flow is empty
-	// on the mesh leg — no TLS there). The client is keyed only by clientID.
 	vc, err := vless.NewClient(clientID, "", logger.NOP())
 	if err != nil {
 		_ = raw.Close()
@@ -259,8 +356,56 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 	relay(conn, up, stat)
 }
 
-func (p *Proxy) handlePacket(context.Context, N.PacketConn, adapter.InboundContext, N.CloseHandlerFunc) {
-	// UDP not used by the entry profile yet.
+func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.InboundContext, _ N.CloseHandlerFunc) {
+	clientID, ok := auth.UserFromContext[string](ctx)
+	if !ok {
+		_ = conn.Close()
+		return
+	}
+
+	p.mu.RLock()
+	be, ok := p.backends[p.route[clientID]]
+	p.mu.RUnlock()
+	if !ok {
+		p.log.Warn("no backend for user (udp)", "client_id", clientID)
+		_ = conn.Close()
+		return
+	}
+
+	raw, err := p.dialBackend(ctx, be)
+	if err != nil {
+		p.log.Warn("dial backend failed (udp)", "backend", be.ID, "err", err)
+		_ = conn.Close()
+		return
+	}
+
+	p.mu.Lock()
+	p.nextID++
+	stat := &connStat{id: p.nextID, clientID: clientID, backendID: be.ID}
+	p.active[stat.id] = stat
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		delete(p.active, stat.id)
+		p.mu.Unlock()
+		_ = raw.Close()
+		_ = conn.Close()
+	}()
+
+	// Count bytes on the mesh carrier: Write is the upload leg (client->backend),
+	// Read the download leg. Tallying here (a plain net.Conn) instead of on the
+	// packet conn leaves sing's XUDP headroom/fast paths untouched; the count is
+	// wire bytes including the small XUDP framing overhead.
+	counted := &countingConn{Conn: raw, up: &stat.up, down: &stat.down}
+	vc, err := vless.NewClient(clientID, "", logger.NOP())
+	if err != nil {
+		return
+	}
+	up, err := vc.DialEarlyXUDPPacketConn(counted, md.Destination)
+	if err != nil {
+		return
+	}
+	_ = bufio.CopyPacketConn(ctx, conn, up)
 }
 
 func (p *Proxy) AddUser(_ context.Context, clientID, flow string) error {
@@ -347,6 +492,26 @@ func (p *Proxy) syncUsersLocked() {
 	p.service.UpdateUsers(ids, ids, flows)
 }
 
+// setKeepAlive turns on TCP keepalive so a peer that disappears without a clean
+// close is detected and its relay torn down, instead of leaking the goroutine.
+// period <= 0 leaves the socket default untouched.
+func setKeepAlive(c net.Conn, period time.Duration) {
+	if period <= 0 {
+		return
+	}
+	if tc, ok := c.(*net.TCPConn); ok {
+		_ = tc.SetKeepAlive(true)
+		_ = tc.SetKeepAlivePeriod(period)
+	}
+}
+
+// relayBufPool reuses copy buffers across connections so each relayed stream
+// doesn't allocate a fresh 32KiB buffer (io.Copy's default). At scale this is
+// the bulk of per-connection heap churn — pooling keeps GC pressure flat as the
+// user count grows. The optimized WriteTo/ReaderFrom path (when a conn supports
+// it) ignores the buffer, so pooling never hurts.
+var relayBufPool = sync.Pool{New: func() any { b := make([]byte, 32*1024); return &b }}
+
 // relay splices client and backend, counting up/down bytes. One direction
 // ending half-closes its destination (CloseWrite) so the other keeps flowing;
 // a full close on either end would tear down live traffic mid-session.
@@ -357,7 +522,9 @@ func relay(client, backend net.Conn, stat *connStat) {
 	wg.Add(2)
 	cp := func(dst, src net.Conn, counter *atomic.Uint64) {
 		defer wg.Done()
-		_, _ = io.Copy(countingWriter{dst, counter}, src)
+		bufp := relayBufPool.Get().(*[]byte)
+		_, _ = io.CopyBuffer(countingWriter{dst, counter}, src, *bufp)
+		relayBufPool.Put(bufp)
 		if cw, ok := dst.(interface{ CloseWrite() error }); ok {
 			_ = cw.CloseWrite()
 		} else {
@@ -379,6 +546,32 @@ func (c countingWriter) Write(p []byte) (int, error) {
 	n, err := c.w.Write(p)
 	if n > 0 {
 		c.n.Add(uint64(n))
+	}
+	return n, err
+}
+
+// countingConn tallies UDP relay bytes on the backend mesh carrier (a plain
+// net.Conn). Write is the upload leg (client->backend), Read the download leg.
+// The XUDP packet conn is layered on top of this, so the tally is wire bytes
+// including the small per-packet framing overhead.
+type countingConn struct {
+	net.Conn
+	up   *atomic.Uint64
+	down *atomic.Uint64
+}
+
+func (c *countingConn) Read(p []byte) (int, error) {
+	n, err := c.Conn.Read(p)
+	if n > 0 {
+		c.down.Add(uint64(n))
+	}
+	return n, err
+}
+
+func (c *countingConn) Write(p []byte) (int, error) {
+	n, err := c.Conn.Write(p)
+	if n > 0 {
+		c.up.Add(uint64(n))
 	}
 	return n, err
 }

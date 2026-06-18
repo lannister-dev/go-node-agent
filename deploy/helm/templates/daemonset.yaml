@@ -277,6 +277,10 @@ spec:
           env:
             - name: ENTRY_LISTEN_ADDR
               value: {{ .Values.entryProxy.listenAddr | quote }}
+            {{- with .Values.entryProxy.plainListenAddr }}
+            - name: ENTRY_PLAIN_LISTEN_ADDR
+              value: {{ . | quote }}
+            {{- end }}
             - name: ENTRY_PROXY_SOCKET
               value: {{ printf "%s/control.sock" .Values.entryProxy.socketDir | quote }}
             - name: REALITY_SERVER_NAME
@@ -295,11 +299,48 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.entryProxy.secrets.realitySecretName }}
                   key: reality_short_id
+            {{- if .Values.entryProxy.goMemLimit }}
+            - name: GOMEMLIMIT
+              value: {{ .Values.entryProxy.goMemLimit | quote }}
+            {{- end }}
+            {{- if .Values.entryProxy.gogc }}
+            - name: GOGC
+              value: {{ .Values.entryProxy.gogc | quote }}
+            {{- end }}
+            {{- if .Values.entryProxy.debugAddr }}
+            - name: ENTRY_DEBUG_ADDR
+              value: {{ .Values.entryProxy.debugAddr | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.entryProxy.resources | nindent 12 }}
           volumeMounts:
             - name: entry-proxy-sock
               mountPath: {{ .Values.entryProxy.socketDir }}
+        {{- end }}
+        {{- if .Values.doorman.enabled }}
+        - name: doorman
+          image: "{{ .Values.doorman.image.repository }}:{{ .Values.doorman.image.tag }}"
+          imagePullPolicy: {{ .Values.doorman.image.pullPolicy }}
+          args: ["run", "-config", "/etc/xray/config.json"]
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_BIND_SERVICE"]
+          ports:
+            - name: xhttp
+              containerPort: {{ .Values.doorman.hostPort }}
+              hostPort: {{ .Values.doorman.hostPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.doorman.resources | nindent 12 }}
+          volumeMounts:
+            - name: doorman-config
+              mountPath: /etc/xray
+              readOnly: true
         {{- end }}
       volumes:
         - name: store
@@ -319,4 +360,9 @@ spec:
         {{- if .Values.entryProxy.enabled }}
         - name: entry-proxy-sock
           emptyDir: {}
+        {{- end }}
+        {{- if .Values.doorman.enabled }}
+        - name: doorman-config
+          configMap:
+            name: {{ include "go-node-agent.fullname" . }}-doorman
         {{- end }}
