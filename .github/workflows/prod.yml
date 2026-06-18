@@ -108,3 +108,16 @@ jobs:
             --set entryProxy.image.tag="${IMAGE_TAG}" \
             --set "imagePullSecrets[0].name=harbor-registry" \
             --wait --timeout 5m
+
+      - name: Deploy go-node-agent whitelist-entry (prod)
+        run: |
+          set -Eeuo pipefail
+          helm upgrade --install go-node-agent-whitelist-prod deploy/helm/ \
+            -n "${NAMESPACE}" \
+            -f deploy/helm/values.whitelist-prod.yaml \
+            --set image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME}" \
+            --set image.tag="${IMAGE_TAG}" \
+            --set entryProxy.image.repository="${HARBOR_URL}/${HARBOR_PROJECT}/${IMAGE_NAME_ENTRY_PROXY}" \
+            --set entryProxy.image.tag="${IMAGE_TAG}" \
+            --set "imagePullSecrets[0].name=harbor-registry" \
+            --wait --timeout 5m

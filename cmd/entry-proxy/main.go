@@ -33,6 +33,7 @@ func run() error {
 
 	p, err := entryproxy.New(entryproxy.Config{
 		ListenAddr:      env("ENTRY_LISTEN_ADDR", ":443"),
+		PlainListenAddr: os.Getenv("ENTRY_PLAIN_LISTEN_ADDR"),
 		RealityKey:      os.Getenv("REALITY_PRIVATE_KEY"),
 		ShortID:         os.Getenv("REALITY_SHORT_ID"),
 		ServerName:      env("REALITY_SERVER_NAME", "www.cloudflare.com"),
