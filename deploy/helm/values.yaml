@@ -158,7 +158,7 @@ doorman:
   enabled: false
   image:
     repository: ghcr.io/xtls/xray-core
-    tag: "25.6.8"
+    tag: "26.3.27"
     pullPolicy: IfNotPresent
   hostPort: 80        # CDN origin hits this (CDN terminates client TLS; origin is plain HTTP)
   targetPort: 10005   # must match the port in entryProxy.plainListenAddr
