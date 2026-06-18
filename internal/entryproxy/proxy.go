@@ -34,6 +34,7 @@ import (
 
 type Config struct {
 	ListenAddr       string // ":443"
+	PlainListenAddr  string // plain-TCP VLESS inbound (no REALITY); empty disables
 	RealityKey       string // REALITY private key (base64)
 	ShortID          string
 	ServerName       string // e.g. www.cloudflare.com
@@ -64,7 +65,8 @@ type Proxy struct {
 	active   map[uint64]*connStat
 	nextID   uint64
 
-	ln net.Listener
+	ln      net.Listener
+	plainLn net.Listener
 }
 
 type connStat struct {
@@ -172,14 +174,31 @@ func (p *Proxy) Start(ctx context.Context) error {
 	p.ln = ln
 	p.log.Info("entry proxy listening", "addr", p.cfg.ListenAddr)
 	go p.acceptLoop(ctx)
+
+	if p.cfg.PlainListenAddr != "" {
+		pln, err := net.Listen("tcp", p.cfg.PlainListenAddr)
+		if err != nil {
+			_ = p.ln.Close()
+			return fmt.Errorf("entryproxy: listen plain %s: %w", p.cfg.PlainListenAddr, err)
+		}
+		p.plainLn = pln
+		p.log.Info("entry proxy plain-VLESS listening", "addr", p.cfg.PlainListenAddr)
+		go p.acceptLoopPlain(ctx)
+	}
 	return nil
 }
 
 func (p *Proxy) Close() error {
-	if p.ln != nil {
-		return p.ln.Close()
+	var err error
+	if p.plainLn != nil {
+		err = p.plainLn.Close()
 	}
-	return nil
+	if p.ln != nil {
+		if cerr := p.ln.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}
+	return err
 }
 
 // Addr is the bound listen address (useful when ListenAddr uses port 0).
@@ -230,6 +249,37 @@ func (p *Proxy) serve(ctx context.Context, conn net.Conn) {
 	onClose := func(error) {}
 	if err := p.service.NewConnection(adapter.WithContext(ctx, &md), tlsConn, source, onClose); err != nil {
 		_ = tlsConn.Close()
+	}
+}
+
+func (p *Proxy) acceptLoopPlain(ctx context.Context) {
+	for {
+		conn, err := p.plainLn.Accept()
+		if err != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				return
+			}
+			p.log.Warn("plain accept failed", "err", err)
+			return
+		}
+		go p.servePlain(ctx, conn)
+	}
+}
+
+func (p *Proxy) servePlain(ctx context.Context, conn net.Conn) {
+	defer func() {
+		if r := recover(); r != nil {
+			p.log.Error("servePlain panic recovered", "err", r)
+			_ = conn.Close()
+		}
+	}()
+
+	setKeepAlive(conn, p.keepAlivePeriod)
+	source := M.SocksaddrFromNet(conn.RemoteAddr())
+	md := adapter.InboundContext{Source: source}
+	onClose := func(error) {}
+	if err := p.service.NewConnection(adapter.WithContext(ctx, &md), conn, source, onClose); err != nil {
+		_ = conn.Close()
 	}
 }
 

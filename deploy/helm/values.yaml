@@ -129,6 +129,7 @@ entryProxy:
     pullPolicy: IfNotPresent
   socketDir: /var/run/entry-proxy
   listenAddr: ":443"
+  plainListenAddr: "" # plain-TCP VLESS inbound fed by the doorman sidecar (e.g. "127.0.0.1:10005"); empty disables
   reality:
     serverName: www.cloudflare.com
     handshakeServer: www.cloudflare.com
@@ -149,6 +150,29 @@ entryProxy:
     limits:
       cpu: 500m
       memory: 256Mi
+
+# doorman: xray sidecar that terminates the XHTTP transport (behind a CDN) and
+# forwards the raw VLESS stream to entryProxy.plainListenAddr. Only for CDN-fronted
+# whitelist-entry nodes.
+doorman:
+  enabled: false
+  image:
+    repository: ghcr.io/xtls/xray-core
+    tag: "25.6.8"
+    pullPolicy: IfNotPresent
+  hostPort: 80        # CDN origin hits this (CDN terminates client TLS; origin is plain HTTP)
+  targetPort: 10005   # must match the port in entryProxy.plainListenAddr
+  xhttp:
+    path: "/"
+    paddingKey: "_dc"
+    paddingHeader: "X-Client-Version"
+  resources:
+    requests:
+      cpu: 25m
+      memory: 32Mi
+    limits:
+      cpu: 250m
+      memory: 96Mi
 
 probes:
   liveness:
