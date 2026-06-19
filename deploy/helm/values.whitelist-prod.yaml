@@ -87,7 +87,7 @@ entryProxy:
 
 doorman:
   enabled: true
-  hostPort: 8080
+  hostPort: 8088
   targetPort: 10005
   xhttp:
     path: "/v1/edge"
