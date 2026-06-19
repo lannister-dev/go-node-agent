@@ -321,9 +321,14 @@ func run() error {
 	}
 
 	if bsRes.FullResyncRequired || cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
-		if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
-			log.Warn("snapshot request failed", "err", rerr)
-		}
+		go func() {
+			if stack != nil && stack.entryProxy != nil {
+				waitEntryProxyReady(ctx, stack.entryProxy, log)
+			}
+			if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
+				log.Warn("snapshot request failed", "err", rerr)
+			}
+		}()
 	}
 
 	if cfg.WgEnabled {
@@ -629,6 +634,24 @@ func buildEmbeddedEntryStack(
 		registry:   reg,
 		entryProxy: proxy,
 	}, nil
+}
+
+func waitEntryProxyReady(ctx context.Context, proxy *entryproxyclient.Client, log *slog.Logger) {
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		if proxy.Check(ctx) == nil {
+			return
+		}
+		if ctx.Err() != nil || time.Now().After(deadline) {
+			log.Warn("entry proxy not ready before snapshot request; requesting anyway")
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 // runEntryProxyResync pushes store state to the embedded proxy on startup and
