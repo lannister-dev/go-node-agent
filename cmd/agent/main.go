@@ -321,14 +321,7 @@ func run() error {
 	}
 
 	if bsRes.FullResyncRequired || cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
-		go func() {
-			if stack != nil && stack.entryProxy != nil {
-				waitEntryProxyReady(ctx, stack.entryProxy, log)
-			}
-			if rerr := snapRequester.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
-				log.Warn("snapshot request failed", "err", rerr)
-			}
-		}()
+		go requestStartupSnapshot(ctx, snapRequester, snapConsumer, stack, log)
 	}
 
 	if cfg.WgEnabled {
@@ -634,6 +627,48 @@ func buildEmbeddedEntryStack(
 		registry:   reg,
 		entryProxy: proxy,
 	}, nil
+}
+
+func requestStartupSnapshot(ctx context.Context, req *snapshot.Requester, consumer *snapshot.Consumer, stack *entryStack, log *slog.Logger) {
+	if stack != nil && stack.entryProxy != nil {
+		waitEntryProxyReady(ctx, stack.entryProxy, log)
+	}
+	const maxAttempts = 8
+	const retryInterval = 15 * time.Second
+	received := func() bool {
+		chunks, _, _ := consumer.Stats()
+		return chunks > 0
+	}
+	for attempt := 1; ; attempt++ {
+		if rerr := req.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
+			log.Warn("snapshot request failed", "err", rerr, "attempt", attempt)
+		}
+		deadline := time.Now().Add(retryInterval)
+		for {
+			if received() {
+				return
+			}
+			if ctx.Err() != nil || time.Now().After(deadline) {
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
+		}
+		if received() {
+			return
+		}
+		if ctx.Err() != nil {
+			return
+		}
+		if attempt >= maxAttempts {
+			log.Warn("startup snapshot not received after retries", "attempts", attempt)
+			return
+		}
+		log.Info("startup snapshot not received, re-requesting", "attempt", attempt)
+	}
 }
 
 func waitEntryProxyReady(ctx context.Context, proxy *entryproxyclient.Client, log *slog.Logger) {
