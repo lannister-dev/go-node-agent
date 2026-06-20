@@ -79,8 +79,8 @@ entryProxy:
     pullPolicy: Always
   plainListenAddr: "127.0.0.1:10005"
   reality:
-    serverName: www.cloudflare.com
-    handshakeServer: www.cloudflare.com
+    serverName: yastatic.net
+    handshakeServer: yastatic.net
     handshakePort: 443
   secrets:
     realitySecretName: go-node-agent-whitelist-prod-bootstrap

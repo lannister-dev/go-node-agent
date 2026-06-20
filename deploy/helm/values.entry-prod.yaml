@@ -74,8 +74,8 @@ entryProxy:
     tag: prod
     pullPolicy: Always
   reality:
-    serverName: www.cloudflare.com
-    handshakeServer: www.cloudflare.com
+    serverName: yastatic.net
+    handshakeServer: yastatic.net
     handshakePort: 443
   secrets:
     realitySecretName: go-node-agent-entry-prod-bootstrap
