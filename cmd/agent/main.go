@@ -417,10 +417,17 @@ func run() error {
 	if trafficReporter != nil {
 		trafficSrc = trafficReporter
 	}
+	var entrySrc server.EntrySource
+	if stack != nil && stack.entryProxy != nil {
+		if es, ok := stack.actions.(server.EntrySource); ok {
+			entrySrc = es
+		}
+	}
 	adminSrv, err := server.New(server.Options{
 		Addr:        cfg.HTTPAddr,
 		Stats:       app,
 		Traffic:     trafficSrc,
+		Entry:       entrySrc,
 		Checks:      healthChecks,
 		Logger:      log,
 		EnablePprof: true,

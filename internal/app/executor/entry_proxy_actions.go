@@ -25,9 +25,12 @@ type EntryProxyActions struct {
 	backends BackendLookup
 	log      *slog.Logger
 	pending  atomic.Bool
+	users    atomic.Int64
 }
 
 func (a *EntryProxyActions) HasPending() bool { return a.pending.Load() }
+
+func (a *EntryProxyActions) Users() int { return int(a.users.Load()) }
 
 func NewEntryProxyActions(proxy ports.EntryProxy, store PlacementStore, backends BackendLookup, log *slog.Logger) (*EntryProxyActions, error) {
 	if proxy == nil || store == nil || backends == nil {
@@ -180,6 +183,7 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 		}
 	}
 	a.pending.Store(pending)
+	a.users.Store(int64(len(byUser)))
 	a.log.Info("entry proxy rebuilt from store", "users", len(byUser), "pending", pending)
 	return nil
 }

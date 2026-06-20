@@ -14,6 +14,10 @@ type TrafficSource interface {
 	DownBytes() uint64
 }
 
+type EntrySource interface {
+	Users() int
+}
+
 func registerApplierMetrics(reg *prometheus.Registry, src StatsSource) {
 	reg.MustRegister(collectors.NewGoCollector())
 	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
@@ -42,6 +46,16 @@ func registerApplierMetrics(reg *prometheus.Registry, src StatsSource) {
 		_, _, f := src.Snapshot()
 		return float64(f)
 	}))
+}
+
+func registerEntryMetrics(reg *prometheus.Registry, src EntrySource) {
+	if src == nil {
+		return
+	}
+	reg.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "agent_entry_users",
+		Help: "Users currently loaded into the embedded entry proxy from the store.",
+	}, func() float64 { return float64(src.Users()) }))
 }
 
 func registerTrafficMetrics(reg *prometheus.Registry, src TrafficSource) {

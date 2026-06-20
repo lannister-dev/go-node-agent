@@ -18,6 +18,7 @@ type Options struct {
 	Addr            string
 	Stats           StatsSource
 	Traffic         TrafficSource
+	Entry           EntrySource
 	Checks          []HealthCheck
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration
@@ -51,6 +52,7 @@ func New(opts Options) (*Server, error) {
 	reg := prometheus.NewRegistry()
 	registerApplierMetrics(reg, opts.Stats)
 	registerTrafficMetrics(reg, opts.Traffic)
+	registerEntryMetrics(reg, opts.Entry)
 
 	ln, err := net.Listen("tcp", opts.Addr)
 	if err != nil {
