@@ -320,8 +320,10 @@ func run() error {
 		return err
 	}
 
-	if bsRes.FullResyncRequired || cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
-		go requestStartupSnapshot(ctx, snapRequester, snapConsumer, stack, log)
+	if cfg.NodeRole == "entry" || cfg.NodeRole == "whitelist_entry" {
+		go runEntrySelfHeal(ctx, snapRequester, snapConsumer, stack, log)
+	} else if bsRes.FullResyncRequired {
+		go awaitCompleteSnapshot(ctx, snapRequester, snapConsumer, log.With("component", "snapshot-requester"), 2*time.Minute)
 	}
 
 	if cfg.WgEnabled {
@@ -636,45 +638,95 @@ func buildEmbeddedEntryStack(
 	}, nil
 }
 
-func requestStartupSnapshot(ctx context.Context, req *snapshot.Requester, consumer *snapshot.Consumer, stack *entryStack, log *slog.Logger) {
-	if stack != nil && stack.entryProxy != nil {
-		waitEntryProxyReady(ctx, stack.entryProxy, log)
-	}
-	const maxAttempts = 8
-	const retryInterval = 15 * time.Second
-	received := func() bool {
-		chunks, _, _ := consumer.Stats()
-		return chunks > 0
-	}
-	for attempt := 1; ; attempt++ {
+func awaitCompleteSnapshot(ctx context.Context, req *snapshot.Requester, consumer *snapshot.Consumer, log *slog.Logger, deadline time.Duration) {
+	const cooldown = 20 * time.Second
+	var last time.Time
+	request := func() {
 		if rerr := req.Request(ctx, jsonv1.SnapshotReasonStartup); rerr != nil {
-			log.Warn("snapshot request failed", "err", rerr, "attempt", attempt)
+			log.Warn("snapshot request failed", "err", rerr)
 		}
-		deadline := time.Now().Add(retryInterval)
-		for {
-			if received() {
-				return
-			}
-			if ctx.Err() != nil || time.Now().After(deadline) {
-				break
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(time.Second):
-			}
-		}
-		if received() {
+		last = time.Now()
+	}
+	request()
+	end := time.Now().Add(deadline)
+	for {
+		if _, _, completed := consumer.Stats(); completed {
 			return
 		}
 		if ctx.Err() != nil {
 			return
 		}
-		if attempt >= maxAttempts {
-			log.Warn("startup snapshot not received after retries", "attempts", attempt)
+		if time.Now().After(end) {
+			log.Warn("startup snapshot not completed within deadline; continuing")
 			return
 		}
-		log.Info("startup snapshot not received, re-requesting", "attempt", attempt)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+		}
+		if time.Since(last) >= cooldown {
+			if _, _, completed := consumer.Stats(); !completed {
+				request()
+			}
+		}
+	}
+}
+
+func entryDegraded(stack *entryStack) (bool, string) {
+	if stack == nil {
+		return false, ""
+	}
+	if u, ok := stack.actions.(interface{ Users() int }); ok && u.Users() == 0 {
+		return true, "zero users loaded"
+	}
+	if hp, ok := stack.actions.(interface{ HasPending() bool }); ok && hp.HasPending() {
+		return true, "pending routes (user without backend)"
+	}
+	if stack.registry != nil && stack.registry.Len() == 0 {
+		return true, "zero backends registered"
+	}
+	return false, ""
+}
+
+func runEntrySelfHeal(ctx context.Context, req *snapshot.Requester, consumer *snapshot.Consumer, stack *entryStack, log *slog.Logger) {
+	log = log.With("component", "entry-self-heal")
+	if stack != nil && stack.entryProxy != nil {
+		waitEntryProxyReady(ctx, stack.entryProxy, log)
+	}
+	awaitCompleteSnapshot(ctx, req, consumer, log, 2*time.Minute)
+
+	const (
+		tick          = 30 * time.Second
+		cooldown      = 20 * time.Second
+		safetyRefresh = 10 * time.Minute
+	)
+	lastRequest := time.Now()
+	request := func(reason string) {
+		if rerr := req.Request(ctx, reason); rerr != nil {
+			log.Warn("self-heal snapshot request failed", "reason", reason, "err", rerr)
+		}
+		lastRequest = time.Now()
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		if degraded, reason := entryDegraded(stack); degraded {
+			if time.Since(lastRequest) >= cooldown {
+				log.Warn("entry degraded; re-requesting snapshot", "reason", reason)
+				request(jsonv1.SnapshotReasonStartup)
+			}
+			continue
+		}
+		if time.Since(lastRequest) >= safetyRefresh {
+			log.Info("safety snapshot refresh")
+			request(jsonv1.SnapshotReasonStartup)
+		}
 	}
 }
 
