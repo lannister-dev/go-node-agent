@@ -8,6 +8,7 @@ type EntryProxy interface {
 	AddUser(ctx context.Context, clientID, flow string) error
 	RemoveUser(ctx context.Context, clientID string) error
 	SelectBackend(ctx context.Context, clientID, backendID string) error
+	SetUserBackends(ctx context.Context, clientID string, backendIDs []string) error
 	SetBackends(ctx context.Context, backends []EntryBackend) error
 	BackendConnections(ctx context.Context, backendID string) (uint64, error)
 	ActiveConnections(ctx context.Context) ([]EntryConnection, error)

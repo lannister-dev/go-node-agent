@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"net"
@@ -61,7 +62,7 @@ type Proxy struct {
 	mu       sync.RWMutex
 	users    map[string]string // clientID -> flow
 	backends map[string]ports.EntryBackend
-	route    map[string]string // clientID -> backendID
+	route    map[string][]string // clientID -> eligible backendIDs (per-connection sticky-by-dest)
 	active   map[uint64]*connStat
 	nextID   uint64
 
@@ -155,7 +156,7 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 		keepAlivePeriod:  keepAlivePeriod,
 		users:            map[string]string{},
 		backends:         map[string]ports.EntryBackend{},
-		route:            map[string]string{},
+		route:            map[string][]string{},
 		active:           map[uint64]*connStat{},
 	}
 	p.service = vless.NewService[string](logger.NOP(), adapter.NewUpstreamContextHandlerEx(p.handleConn, p.handlePacket))
@@ -315,9 +316,7 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 		return
 	}
 
-	p.mu.RLock()
-	be, ok := p.backends[p.route[clientID]]
-	p.mu.RUnlock()
+	be, ok := p.pickConnBackend(clientID, destHostKey(md.Destination))
 	if !ok {
 		p.log.Warn("no backend for user", "client_id", clientID)
 		_ = conn.Close()
@@ -363,9 +362,7 @@ func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.
 		return
 	}
 
-	p.mu.RLock()
-	be, ok := p.backends[p.route[clientID]]
-	p.mu.RUnlock()
+	be, ok := p.pickConnBackend(clientID, destHostKey(md.Destination))
 	if !ok {
 		p.log.Warn("no backend for user (udp)", "client_id", clientID)
 		_ = conn.Close()
@@ -434,8 +431,74 @@ func (p *Proxy) SelectBackend(_ context.Context, clientID, backendID string) err
 	if _, ok := p.backends[backendID]; !ok {
 		return fmt.Errorf("entryproxy: unknown backend %s", backendID)
 	}
-	p.route[clientID] = backendID
+	for _, id := range p.route[clientID] {
+		if id == backendID {
+			return nil
+		}
+	}
+	p.route[clientID] = append(p.route[clientID], backendID)
 	return nil
+}
+
+func (p *Proxy) SetUserBackends(_ context.Context, clientID string, backendIDs []string) error {
+	if clientID == "" {
+		return errors.New("entryproxy: empty clientID")
+	}
+	set := make([]string, 0, len(backendIDs))
+	seen := make(map[string]struct{}, len(backendIDs))
+	for _, id := range backendIDs {
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		set = append(set, id)
+	}
+	p.mu.Lock()
+	p.route[clientID] = set
+	p.mu.Unlock()
+	return nil
+}
+
+func (p *Proxy) pickConnBackend(clientID, destHost string) (ports.EntryBackend, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	var best ports.EntryBackend
+	var bestScore uint64
+	found := false
+	for _, id := range p.route[clientID] {
+		be, ok := p.backends[id]
+		if !ok {
+			continue
+		}
+		s := hrwScore(id, clientID, destHost)
+		if !found || s > bestScore {
+			best, bestScore, found = be, s, true
+		}
+	}
+	return best, found
+}
+
+func hrwScore(backendID, clientID, destHost string) uint64 {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(backendID))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(clientID))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(destHost))
+	return h.Sum64()
+}
+
+func destHostKey(d M.Socksaddr) string {
+	if d.Fqdn != "" {
+		return d.Fqdn
+	}
+	if d.Addr.IsValid() {
+		return d.Addr.String()
+	}
+	return ""
 }
 
 func (p *Proxy) SetBackends(_ context.Context, specs []ports.EntryBackend) error {

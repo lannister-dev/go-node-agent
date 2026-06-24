@@ -11,16 +11,17 @@ import (
 )
 
 type fakeEntryProxy struct {
-	mu       sync.Mutex
-	added    map[string]string
-	removed  []string
-	route    map[string]string
-	backends []ports.EntryBackend
-	conns    uint64
+	mu           sync.Mutex
+	added        map[string]string
+	removed      []string
+	route        map[string]string
+	userBackends map[string][]string
+	backends     []ports.EntryBackend
+	conns        uint64
 }
 
 func newFakeProxy() *fakeEntryProxy {
-	return &fakeEntryProxy{added: map[string]string{}, route: map[string]string{}}
+	return &fakeEntryProxy{added: map[string]string{}, route: map[string]string{}, userBackends: map[string][]string{}}
 }
 
 func (f *fakeEntryProxy) AddUser(_ context.Context, clientID, flow string) error {
@@ -43,6 +44,13 @@ func (f *fakeEntryProxy) SelectBackend(_ context.Context, clientID, backendID st
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.route[clientID] = backendID
+	return nil
+}
+
+func (f *fakeEntryProxy) SetUserBackends(_ context.Context, clientID string, backendIDs []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.userBackends[clientID] = append([]string(nil), backendIDs...)
 	return nil
 }
 
@@ -185,12 +193,21 @@ func TestProxyActions_RebuildFromStorePushesState(t *testing.T) {
 	if _, ok := proxy.added["user-b"]; ok {
 		t.Fatal("inactive user should not be added")
 	}
-	if proxy.route["user-a"] != "latvia-01" {
-		t.Fatalf("active user route wrong: %q", proxy.route["user-a"])
+	if got := proxy.userBackends["user-a"]; len(got) != 1 || got[0] != "latvia-01" {
+		t.Fatalf("active user backends wrong: %v", got)
 	}
 }
 
-func TestProxyActions_RebuildMultiPlacementDeterministicRoute(t *testing.T) {
+func hasBackend(ids []string, id string) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
+}
+
+func TestProxyActions_RebuildSpreadsAcrossAllEligibleBackends(t *testing.T) {
 	proxy := newFakeProxy()
 	store := newMemStore(
 		domain.Placement{ID: "p-old", ClientID: "user-a", BackendNodeID: "latvia-01", Desired: domain.DesiredActive, Transport: domain.TransportReality, OpVersion: 1},
@@ -200,15 +217,16 @@ func TestProxyActions_RebuildMultiPlacementDeterministicRoute(t *testing.T) {
 	if err := a.RebuildFromStore(context.Background()); err != nil {
 		t.Fatalf("RebuildFromStore: %v", err)
 	}
-	if proxy.route["user-a"] != "praha-02" {
-		t.Fatalf("expected highest-opversion backend, got %q", proxy.route["user-a"])
+	got := proxy.userBackends["user-a"]
+	if !hasBackend(got, "latvia-01") || !hasBackend(got, "praha-02") {
+		t.Fatalf("expected both eligible backends in set, got %v", got)
 	}
 	if a.HasPending() {
 		t.Fatal("nothing should be pending")
 	}
 }
 
-func TestProxyActions_RebuildHonorsEntryOverride(t *testing.T) {
+func TestProxyActions_RebuildSpreadsIgnoringOverride(t *testing.T) {
 	proxy := newFakeProxy()
 	reg := NewStaticBackends([]singboxgen.BackendSpec{
 		{ID: "rix-backend-01", Name: "rix-backend-01", Address: "10.0.0.1", Port: 9000},
@@ -225,8 +243,9 @@ func TestProxyActions_RebuildHonorsEntryOverride(t *testing.T) {
 	if err := a.RebuildFromStore(context.Background()); err != nil {
 		t.Fatalf("RebuildFromStore: %v", err)
 	}
-	if proxy.route["user-a"] != "rix-backend-01" {
-		t.Fatalf("override must win over higher opv: got %q want rix-backend-01", proxy.route["user-a"])
+	got := proxy.userBackends["user-a"]
+	if !hasBackend(got, "rix-backend-01") || !hasBackend(got, "zrh-backend-01") {
+		t.Fatalf("expected both backends in eligible set, got %v", got)
 	}
 }
 

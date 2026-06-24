@@ -46,6 +46,10 @@ func (c *Client) SelectBackend(ctx context.Context, clientID, backendID string) 
 	return c.post(ctx, api.PathSelectBackend, api.SelectBackendRequest{ClientID: clientID, BackendID: backendID}, nil)
 }
 
+func (c *Client) SetUserBackends(ctx context.Context, clientID string, backendIDs []string) error {
+	return c.post(ctx, api.PathSetUserBackends, api.SetUserBackendsRequest{ClientID: clientID, BackendIDs: backendIDs}, nil)
+}
+
 func (c *Client) SetBackends(ctx context.Context, backends []ports.EntryBackend) error {
 	return c.post(ctx, api.PathSetBackends, api.SetBackendsRequest{Backends: backends}, nil)
 }

@@ -172,14 +172,14 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 		if err := a.proxy.AddUser(ctx, string(clientID), singboxgen.FlowForTransport(cands[0].Transport)); err != nil {
 			return fmt.Errorf("rebuild: add user %s: %w", clientID, err)
 		}
-		backend, ok := a.pickBackend(cands)
-		if !ok {
+		ids := a.eligibleBackendIDs(cands)
+		if len(ids) == 0 {
 			pending = true
 			a.log.Warn("rebuild: no known backend for user yet, route deferred", "client_id", clientID)
 			continue
 		}
-		if err := a.proxy.SelectBackend(ctx, string(clientID), string(backend)); err != nil {
-			return fmt.Errorf("rebuild: select backend for %s: %w", clientID, err)
+		if err := a.proxy.SetUserBackends(ctx, string(clientID), ids); err != nil {
+			return fmt.Errorf("rebuild: set user backends for %s: %w", clientID, err)
 		}
 	}
 	a.pending.Store(pending)
@@ -188,35 +188,21 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 	return nil
 }
 
-func (a *EntryProxyActions) pickBackend(cands []domain.Placement) (domain.BackendID, bool) {
-	overrideTag := cands[0].EntryOverrideTag
-	var best *domain.Placement
+func (a *EntryProxyActions) eligibleBackendIDs(cands []domain.Placement) []string {
+	ids := make([]string, 0, len(cands))
+	seen := make(map[domain.BackendID]struct{}, len(cands))
 	for i := range cands {
-		spec, ok := a.backends.Get(cands[i].BackendNodeID)
-		if !ok {
+		bid := cands[i].BackendNodeID
+		if _, dup := seen[bid]; dup {
 			continue
 		}
-		if overrideTag != "" && "backend-"+spec.Name == overrideTag {
-			return cands[i].BackendNodeID, true
+		if _, ok := a.backends.Get(bid); !ok {
+			continue
 		}
-		if best == nil || moreRecentPlacement(cands[i], *best) {
-			best = &cands[i]
-		}
+		seen[bid] = struct{}{}
+		ids = append(ids, string(bid))
 	}
-	if best == nil {
-		return "", false
-	}
-	return best.BackendNodeID, true
-}
-
-func moreRecentPlacement(a, b domain.Placement) bool {
-	if a.OpVersion != b.OpVersion {
-		return a.OpVersion > b.OpVersion
-	}
-	if !a.LastAppliedAt.Equal(b.LastAppliedAt) {
-		return a.LastAppliedAt.After(b.LastAppliedAt)
-	}
-	return a.BackendNodeID > b.BackendNodeID
+	return ids
 }
 
 // SyncBackends pushes the current backend registry to the proxy pool.

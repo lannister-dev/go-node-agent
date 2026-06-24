@@ -58,6 +58,13 @@ func (s *ControlServer) handler() http.Handler {
 		}
 		respond(w, s.proxy.SelectBackend(r.Context(), req.ClientID, req.BackendID), nil)
 	})
+	mux.HandleFunc("POST "+api.PathSetUserBackends, func(w http.ResponseWriter, r *http.Request) {
+		var req api.SetUserBackendsRequest
+		if !decode(w, r, &req) {
+			return
+		}
+		respond(w, s.proxy.SetUserBackends(r.Context(), req.ClientID, req.BackendIDs), nil)
+	})
 	mux.HandleFunc("POST "+api.PathSetBackends, func(w http.ResponseWriter, r *http.Request) {
 		var req api.SetBackendsRequest
 		if !decode(w, r, &req) {

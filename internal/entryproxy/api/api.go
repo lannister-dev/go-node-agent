@@ -10,6 +10,7 @@ const (
 	PathAddUser            = "/v1/add-user"
 	PathRemoveUser         = "/v1/remove-user"
 	PathSelectBackend      = "/v1/select-backend"
+	PathSetUserBackends    = "/v1/set-user-backends"
 	PathSetBackends        = "/v1/set-backends"
 	PathBackendConnections = "/v1/backend-connections"
 	PathActiveConnections  = "/v1/active-connections"
@@ -28,6 +29,11 @@ type RemoveUserRequest struct {
 type SelectBackendRequest struct {
 	ClientID  string `json:"client_id"`
 	BackendID string `json:"backend_id"`
+}
+
+type SetUserBackendsRequest struct {
+	ClientID   string   `json:"client_id"`
+	BackendIDs []string `json:"backend_ids"`
 }
 
 type SetBackendsRequest struct {

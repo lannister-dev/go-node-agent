@@ -15,11 +15,12 @@ import (
 )
 
 type fakeProxy struct {
-	mu       sync.Mutex
-	users    map[string]string
-	route    map[string]string
-	backends []ports.EntryBackend
-	failSel  bool
+	mu           sync.Mutex
+	users        map[string]string
+	route        map[string]string
+	userBackends map[string][]string
+	backends     []ports.EntryBackend
+	failSel      bool
 }
 
 func newFake() *fakeProxy {
@@ -47,6 +48,16 @@ func (f *fakeProxy) SelectBackend(_ context.Context, clientID, backendID string)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.route[clientID] = backendID
+	return nil
+}
+
+func (f *fakeProxy) SetUserBackends(_ context.Context, clientID string, backendIDs []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.userBackends == nil {
+		f.userBackends = map[string][]string{}
+	}
+	f.userBackends[clientID] = append([]string(nil), backendIDs...)
 	return nil
 }
 
