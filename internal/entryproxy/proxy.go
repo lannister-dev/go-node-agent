@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -63,6 +64,7 @@ type Proxy struct {
 	users    map[string]string // clientID -> flow
 	backends map[string]ports.EntryBackend
 	route    map[string][]string // clientID -> eligible backendIDs (per-connection sticky-by-dest)
+	health   map[string]*backendHealth
 	active   map[uint64]*connStat
 	nextID   uint64
 
@@ -157,6 +159,7 @@ func New(cfg Config, log *slog.Logger) (*Proxy, error) {
 		users:            map[string]string{},
 		backends:         map[string]ports.EntryBackend{},
 		route:            map[string][]string{},
+		health:           map[string]*backendHealth{},
 		active:           map[uint64]*connStat{},
 	}
 	p.service = vless.NewService[string](logger.NOP(), adapter.NewUpstreamContextHandlerEx(p.handleConn, p.handlePacket))
@@ -285,28 +288,35 @@ func (p *Proxy) servePlain(ctx context.Context, conn net.Conn) {
 }
 
 // handleConn is the dispatcher: the authenticated user is the routing key.
-func (p *Proxy) dialBackend(ctx context.Context, be ports.EntryBackend) (net.Conn, error) {
-	addr := net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port)))
+func (p *Proxy) dialAnyBackend(ctx context.Context, cands []ports.EntryBackend) (net.Conn, ports.EntryBackend, bool) {
 	deadline := time.Now().Add(p.dialTimeout)
-	var lastErr error
 	for time.Now().Before(deadline) {
-		attemptTO := time.Until(deadline)
-		if attemptTO > p.dialAttemptTO {
-			attemptTO = p.dialAttemptTO
+		progressed := false
+		for _, be := range cands {
+			if ctx.Err() != nil || time.Now().After(deadline) {
+				return nil, ports.EntryBackend{}, false
+			}
+			progressed = true
+			attemptTO := p.dialAttemptTO
+			if rem := time.Until(deadline); rem < attemptTO {
+				attemptTO = rem
+			}
+			dctx, cancel := context.WithTimeout(ctx, attemptTO)
+			raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", net.JoinHostPort(be.Address, strconv.Itoa(int(be.Port))))
+			cancel()
+			if err == nil {
+				setKeepAlive(raw, p.keepAlivePeriod)
+				p.markBackendSuccess(be.ID)
+				return raw, be, true
+			}
+			p.markBackendFailure(be.ID)
+			p.log.Warn("dial backend failed, failing over", "backend", be.ID, "err", err)
 		}
-		dctx, cancel := context.WithTimeout(ctx, attemptTO)
-		raw, err := (&net.Dialer{}).DialContext(dctx, "tcp", addr)
-		cancel()
-		if err == nil {
-			setKeepAlive(raw, p.keepAlivePeriod)
-			return raw, nil
-		}
-		lastErr = err
-		if ctx.Err() != nil {
+		if !progressed {
 			break
 		}
 	}
-	return nil, lastErr
+	return nil, ports.EntryBackend{}, false
 }
 
 func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.InboundContext, onClose N.CloseHandlerFunc) {
@@ -316,16 +326,15 @@ func (p *Proxy) handleConn(ctx context.Context, conn net.Conn, md adapter.Inboun
 		return
 	}
 
-	be, ok := p.pickConnBackend(clientID, destHostKey(md.Destination))
-	if !ok {
+	cands := p.connBackends(clientID, destHostKey(md.Destination))
+	if len(cands) == 0 {
 		p.log.Warn("no backend for user", "client_id", clientID)
 		_ = conn.Close()
 		return
 	}
-
-	raw, err := p.dialBackend(ctx, be)
-	if err != nil {
-		p.log.Warn("dial backend failed", "backend", be.ID, "err", err)
+	raw, be, dialed := p.dialAnyBackend(ctx, cands)
+	if !dialed {
+		p.log.Warn("all backends failed for user", "client_id", clientID)
 		_ = conn.Close()
 		return
 	}
@@ -362,16 +371,15 @@ func (p *Proxy) handlePacket(ctx context.Context, conn N.PacketConn, md adapter.
 		return
 	}
 
-	be, ok := p.pickConnBackend(clientID, destHostKey(md.Destination))
-	if !ok {
+	cands := p.connBackends(clientID, destHostKey(md.Destination))
+	if len(cands) == 0 {
 		p.log.Warn("no backend for user (udp)", "client_id", clientID)
 		_ = conn.Close()
 		return
 	}
-
-	raw, err := p.dialBackend(ctx, be)
-	if err != nil {
-		p.log.Warn("dial backend failed (udp)", "backend", be.ID, "err", err)
+	raw, be, dialed := p.dialAnyBackend(ctx, cands)
+	if !dialed {
+		p.log.Warn("all backends failed for user (udp)", "client_id", clientID)
 		_ = conn.Close()
 		return
 	}
@@ -462,23 +470,69 @@ func (p *Proxy) SetUserBackends(_ context.Context, clientID string, backendIDs [
 	return nil
 }
 
-func (p *Proxy) pickConnBackend(clientID, destHost string) (ports.EntryBackend, bool) {
+type backendHealth struct {
+	fails          int
+	unhealthyUntil time.Time
+}
+
+const (
+	backendFailThreshold     = 2
+	backendUnhealthyCooldown = 30 * time.Second
+)
+
+func (p *Proxy) connBackends(clientID, destHost string) []ports.EntryBackend {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	var best ports.EntryBackend
-	var bestScore uint64
-	found := false
+	now := time.Now()
+	type cand struct {
+		be      ports.EntryBackend
+		score   uint64
+		healthy bool
+	}
+	cands := make([]cand, 0, len(p.route[clientID]))
 	for _, id := range p.route[clientID] {
 		be, ok := p.backends[id]
 		if !ok {
 			continue
 		}
-		s := hrwScore(id, clientID, destHost)
-		if !found || s > bestScore {
-			best, bestScore, found = be, s, true
-		}
+		h := p.health[id]
+		healthy := h == nil || !now.Before(h.unhealthyUntil)
+		cands = append(cands, cand{be: be, score: hrwScore(id, clientID, destHost), healthy: healthy})
 	}
-	return best, found
+	sort.Slice(cands, func(i, j int) bool {
+		if cands[i].healthy != cands[j].healthy {
+			return cands[i].healthy
+		}
+		return cands[i].score > cands[j].score
+	})
+	out := make([]ports.EntryBackend, len(cands))
+	for i := range cands {
+		out[i] = cands[i].be
+	}
+	return out
+}
+
+func (p *Proxy) markBackendFailure(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	h := p.health[id]
+	if h == nil {
+		h = &backendHealth{}
+		p.health[id] = h
+	}
+	h.fails++
+	if h.fails >= backendFailThreshold {
+		h.unhealthyUntil = time.Now().Add(backendUnhealthyCooldown)
+	}
+}
+
+func (p *Proxy) markBackendSuccess(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if h := p.health[id]; h != nil {
+		h.fails = 0
+		h.unhealthyUntil = time.Time{}
+	}
 }
 
 func hrwScore(backendID, clientID, destHost string) uint64 {
