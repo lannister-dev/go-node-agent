@@ -30,6 +30,7 @@ import (
 	"github.com/sagernet/sing/common/logger"
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
+	"golang.org/x/sys/unix"
 
 	"github.com/lannister-dev/go-node-agent/internal/ports"
 )
@@ -612,13 +613,21 @@ func (p *Proxy) syncUsersLocked() {
 // setKeepAlive turns on TCP keepalive so a peer that disappears without a clean
 // close is detected and its relay torn down, instead of leaking the goroutine.
 // period <= 0 leaves the socket default untouched.
+const tunnelMSS = 1340
+
 func setKeepAlive(c net.Conn, period time.Duration) {
-	if period <= 0 {
+	tc, ok := c.(*net.TCPConn)
+	if !ok {
 		return
 	}
-	if tc, ok := c.(*net.TCPConn); ok {
+	if period > 0 {
 		_ = tc.SetKeepAlive(true)
 		_ = tc.SetKeepAlivePeriod(period)
+	}
+	if raw, err := tc.SyscallConn(); err == nil {
+		_ = raw.Control(func(fd uintptr) {
+			_ = unix.SetsockoptInt(int(fd), unix.IPPROTO_TCP, unix.TCP_MAXSEG, tunnelMSS)
+		})
 	}
 }
 
