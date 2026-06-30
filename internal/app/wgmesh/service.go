@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/lannister-dev/go-node-agent/internal/adapters/nats"
@@ -56,6 +57,9 @@ type Service struct {
 	mgr  *wg.Manager
 	nats kvClient
 	log  *slog.Logger
+
+	mu        sync.Mutex
+	lastState *wg.ApplyState
 }
 
 func New(cfg Config, mgr *wg.Manager, kv kvClient, log *slog.Logger) (*Service, error) {
@@ -83,6 +87,7 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 	key := KeyPrefix + string(s.cfg.NodeID)
 	go s.republishLoop(ctx)
+	go s.selfHealLoop(ctx)
 	for {
 		err := s.nats.KVWatchKey(ctx, BucketPeers, key, s.handlePeerUpdate)
 		if ctx.Err() != nil {
@@ -146,6 +151,51 @@ func (s *Service) handlePeerUpdate(u nats.KVUpdate) error {
 	if err := s.mgr.Apply(state); err != nil {
 		return fmt.Errorf("apply: %w", err)
 	}
+	s.mu.Lock()
+	cached := state
+	s.lastState = &cached
+	s.mu.Unlock()
 	s.log.Info("wg config applied", "address", payload.Address, "peers", len(peers))
 	return nil
+}
+
+func (s *Service) selfHealLoop(ctx context.Context) {
+	t := time.NewTicker(60 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			s.maybeSelfHeal()
+		}
+	}
+}
+
+func (s *Service) maybeSelfHeal() {
+	s.mu.Lock()
+	st := s.lastState
+	s.mu.Unlock()
+	if st == nil || len(st.Peers) == 0 {
+		return
+	}
+	stats, err := s.mgr.PeerStats(time.Now())
+	if err != nil {
+		s.log.Warn("self-heal peerstats failed", "err", err)
+		return
+	}
+	stale := 0
+	for _, ps := range stats {
+		if !ps.HandshakeOK {
+			stale++
+		}
+	}
+	if stale == 0 {
+		return
+	}
+	if err := s.mgr.Apply(*st); err != nil {
+		s.log.Warn("self-heal reapply failed", "stale_peers", stale, "err", err)
+		return
+	}
+	s.log.Warn("wg mesh self-heal reapplied config", "stale_peers", stale, "peers", len(st.Peers))
 }
