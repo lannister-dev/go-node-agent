@@ -27,6 +27,22 @@ type heartbeatEventDTO struct {
 	BandwidthPct  *float64              `json:"bandwidth_pct,omitempty"`
 	Pool          *heartbeatPoolDTO     `json:"pool,omitempty"`
 	Upstream      *heartbeatUpstreamDTO `json:"upstream,omitempty"`
+	Mesh          *heartbeatMeshDTO     `json:"mesh,omitempty"`
+}
+
+type heartbeatMeshDTO struct {
+	PeersTotal            uint32                 `json:"peers_total"`
+	PeersHealthy          uint32                 `json:"peers_healthy"`
+	OldestHandshakeAgeSec uint32                 `json:"oldest_handshake_age_sec"`
+	Peers                 []heartbeatMeshPeerDTO `json:"peers,omitempty"`
+}
+
+type heartbeatMeshPeerDTO struct {
+	PublicKey       string `json:"public_key"`
+	HandshakeAgeSec uint32 `json:"handshake_age_sec"`
+	HandshakeOK     bool   `json:"handshake_ok"`
+	RxBytes         int64  `json:"rx_bytes"`
+	TxBytes         int64  `json:"tx_bytes"`
 }
 
 type heartbeatPoolDTO struct {
@@ -88,7 +104,28 @@ func MarshalHeartbeatEvent(h domain.Heartbeat, eventID, agentVersion string) ([]
 	if h.Upstream != nil {
 		dto.Upstream = upstreamToDTO(h.Upstream)
 	}
+	if h.Mesh != nil {
+		dto.Mesh = meshToDTO(h.Mesh)
+	}
 	return json.Marshal(dto)
+}
+
+func meshToDTO(m *domain.HeartbeatMesh) *heartbeatMeshDTO {
+	dto := &heartbeatMeshDTO{
+		PeersTotal:            m.PeersTotal,
+		PeersHealthy:          m.PeersHealthy,
+		OldestHandshakeAgeSec: m.OldestHandshakeAgeSec,
+	}
+	for _, p := range m.Peers {
+		dto.Peers = append(dto.Peers, heartbeatMeshPeerDTO{
+			PublicKey:       p.PublicKey,
+			HandshakeAgeSec: p.HandshakeAgeSec,
+			HandshakeOK:     p.HandshakeOK,
+			RxBytes:         p.RxBytes,
+			TxBytes:         p.TxBytes,
+		})
+	}
+	return dto
 }
 
 func poolToDTO(p *domain.HeartbeatPool) *heartbeatPoolDTO {

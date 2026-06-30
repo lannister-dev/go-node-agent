@@ -25,6 +25,12 @@ type Heartbeat struct {
 	counters Counters
 	ids      IDGenerator
 	log      *slog.Logger
+
+	meshSampler func() *domain.HeartbeatMesh
+}
+
+func (h *Heartbeat) SetMeshSampler(fn func() *domain.HeartbeatMesh) {
+	h.meshSampler = fn
 }
 
 func New(cfg Config, pub Publisher, sampler Sampler, counters Counters, ids IDGenerator, log *slog.Logger) (*Heartbeat, error) {
@@ -101,6 +107,9 @@ func (h *Heartbeat) publish(ctx context.Context) error {
 		CPUPct:       stats.CPUPct,
 		MemPct:       stats.MemPct,
 		BandwidthPct: stats.BandwidthPct,
+	}
+	if h.meshSampler != nil {
+		hb.Mesh = h.meshSampler()
 	}
 	data, err := jsonv1.MarshalHeartbeatEvent(hb, h.ids.NewID(), h.cfg.AgentVersion)
 	if err != nil {

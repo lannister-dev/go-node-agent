@@ -343,6 +343,13 @@ func run() error {
 				log.Error("wgmesh exited", "err", err)
 			}
 		}()
+		hb.SetMeshSampler(func() *domain.HeartbeatMesh {
+			stats, perr := wgMgr.PeerStats(time.Now())
+			if perr != nil {
+				return nil
+			}
+			return meshFromPeerStats(stats)
+		})
 	}
 
 	var trafficReporter *traffic.Reporter
@@ -852,4 +859,25 @@ func runBootstrapWithRetry(ctx context.Context, log *slog.Logger, bs *bootstrap.
 			}
 		}
 	}
+}
+
+func meshFromPeerStats(stats []wg.PeerStat) *domain.HeartbeatMesh {
+	m := &domain.HeartbeatMesh{PeersTotal: uint32(len(stats))}
+	for _, s := range stats {
+		ageSec := uint32(s.LastHandshakeAge / time.Second)
+		if s.HandshakeOK {
+			m.PeersHealthy++
+		}
+		if ageSec > m.OldestHandshakeAgeSec {
+			m.OldestHandshakeAgeSec = ageSec
+		}
+		m.Peers = append(m.Peers, domain.HeartbeatMeshPeer{
+			PublicKey:       s.PublicKey,
+			HandshakeAgeSec: ageSec,
+			HandshakeOK:     s.HandshakeOK,
+			RxBytes:         s.RxBytes,
+			TxBytes:         s.TxBytes,
+		})
+	}
+	return m
 }

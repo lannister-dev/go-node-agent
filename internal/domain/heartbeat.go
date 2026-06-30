@@ -16,6 +16,22 @@ type Heartbeat struct {
 	BandwidthPct *float64
 	Pool         *HeartbeatPool
 	Upstream     *HeartbeatUpstream
+	Mesh         *HeartbeatMesh
+}
+
+type HeartbeatMesh struct {
+	PeersTotal            uint32
+	PeersHealthy          uint32
+	OldestHandshakeAgeSec uint32
+	Peers                 []HeartbeatMeshPeer
+}
+
+type HeartbeatMeshPeer struct {
+	PublicKey       string
+	HandshakeAgeSec uint32
+	HandshakeOK     bool
+	RxBytes         int64
+	TxBytes         int64
 }
 
 type HeartbeatPool struct {

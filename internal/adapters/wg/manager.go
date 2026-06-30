@@ -60,6 +60,42 @@ func (m *Manager) PublicKey() string {
 	return m.priv.PublicKey().String()
 }
 
+const WGHandshakeStaleAfter = 180 * time.Second
+
+type PeerStat struct {
+	PublicKey        string
+	LastHandshakeAge time.Duration
+	HandshakeOK      bool
+	RxBytes          int64
+	TxBytes          int64
+}
+
+func (m *Manager) PeerStats(now time.Time) ([]PeerStat, error) {
+	client, err := wgctrl.New()
+	if err != nil {
+		return nil, fmt.Errorf("wg: new client: %w", err)
+	}
+	defer func() { _ = client.Close() }()
+	dev, err := client.Device(m.iface)
+	if err != nil {
+		return nil, fmt.Errorf("wg: device %s: %w", m.iface, err)
+	}
+	out := make([]PeerStat, 0, len(dev.Peers))
+	for _, p := range dev.Peers {
+		stat := PeerStat{
+			PublicKey: p.PublicKey.String(),
+			RxBytes:   p.ReceiveBytes,
+			TxBytes:   p.TransmitBytes,
+		}
+		if !p.LastHandshakeTime.IsZero() {
+			stat.LastHandshakeAge = now.Sub(p.LastHandshakeTime)
+			stat.HandshakeOK = stat.LastHandshakeAge < WGHandshakeStaleAfter
+		}
+		out = append(out, stat)
+	}
+	return out, nil
+}
+
 func (m *Manager) Apply(s ApplyState) error {
 	addr, mask, err := parseAddress(s.Address)
 	if err != nil {
