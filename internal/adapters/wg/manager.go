@@ -16,6 +16,7 @@ const (
 	DefaultListenPort   = 4500
 	DefaultKeepaliveSec = 25
 	DefaultInterface    = "wg0"
+	DefaultMTU          = 1380
 	privateKeyFile      = "wg-private.key"
 )
 

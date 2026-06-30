@@ -104,6 +104,11 @@ func ensureInterface(name string, addr net.IP, mask net.IPMask) error {
 			return fmt.Errorf("wg: addr add %s: %w", name, err)
 		}
 	}
+	if link.Attrs().MTU != DefaultMTU {
+		if err := netlink.LinkSetMTU(link, DefaultMTU); err != nil {
+			return fmt.Errorf("wg: set mtu %s: %w", name, err)
+		}
+	}
 	if link.Attrs().Flags&net.FlagUp == 0 {
 		if err := netlink.LinkSetUp(link); err != nil {
 			return fmt.Errorf("wg: link up %s: %w", name, err)
