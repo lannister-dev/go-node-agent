@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/signal"
 	"strings"
@@ -861,10 +862,20 @@ func runBootstrapWithRetry(ctx context.Context, log *slog.Logger, bs *bootstrap.
 	}
 }
 
+func toUint32(n int) uint32 {
+	if n < 0 {
+		return 0
+	}
+	if n > math.MaxUint32 {
+		return math.MaxUint32
+	}
+	return uint32(n)
+}
+
 func meshFromPeerStats(stats []wg.PeerStat) *domain.HeartbeatMesh {
-	m := &domain.HeartbeatMesh{PeersTotal: uint32(len(stats))}
+	m := &domain.HeartbeatMesh{PeersTotal: toUint32(len(stats))}
 	for _, s := range stats {
-		ageSec := uint32(s.LastHandshakeAge / time.Second)
+		ageSec := toUint32(int(s.LastHandshakeAge / time.Second))
 		if s.HandshakeOK {
 			m.PeersHealthy++
 		}
