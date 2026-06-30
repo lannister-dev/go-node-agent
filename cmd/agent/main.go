@@ -232,7 +232,7 @@ func run() error {
 	var appExec applier.Executor = applier.NoopExecutor{}
 
 	switch {
-	case cfg.EnableExecutor && strings.EqualFold(cfg.NodeRole, "entry"):
+	case cfg.EnableExecutor && (strings.EqualFold(cfg.NodeRole, "entry") || strings.EqualFold(cfg.NodeRole, "whitelist_entry")):
 		stack, err = buildEntryStack(cfg, nodeID, store, natsTr, subjects, log)
 		if err != nil {
 			return err

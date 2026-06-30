@@ -3,6 +3,7 @@ package wg
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -37,6 +38,7 @@ type Manager struct {
 	iface  string
 	keyDir string
 	priv   wgtypes.Key
+	log    *slog.Logger
 }
 
 func New(iface, keyDir string) (*Manager, error) {
@@ -53,7 +55,7 @@ func New(iface, keyDir string) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{iface: iface, keyDir: keyDir, priv: priv}, nil
+	return &Manager{iface: iface, keyDir: keyDir, priv: priv, log: slog.Default().With("component", "wg")}, nil
 }
 
 func (m *Manager) PublicKey() string {
@@ -119,9 +121,9 @@ func (m *Manager) Apply(s ApplyState) error {
 		return err
 	}
 
-	peers, err := buildPeers(s.Peers)
-	if err != nil {
-		return err
+	peers, skipped := buildPeers(s.Peers)
+	if len(skipped) > 0 {
+		m.log.Warn("wg: skipped invalid peers, applying the rest", "count", len(skipped), "reasons", skipped)
 	}
 	cfg := wgtypes.Config{
 		PrivateKey:   &m.priv,
@@ -191,13 +193,15 @@ func parseAddress(addr string) (net.IP, net.IPMask, error) {
 	return ip.To4(), ipnet.Mask, nil
 }
 
-func buildPeers(in []Peer) ([]wgtypes.PeerConfig, error) {
+func buildPeers(in []Peer) ([]wgtypes.PeerConfig, []string) {
 	keepalive := DefaultKeepaliveSec * time.Second
 	out := make([]wgtypes.PeerConfig, 0, len(in))
+	var skipped []string
 	for _, p := range in {
 		key, err := wgtypes.ParseKey(p.PublicKey)
 		if err != nil {
-			return nil, fmt.Errorf("wg: parse peer key %q: %w", p.PublicKey, err)
+			skipped = append(skipped, fmt.Sprintf("peer %q: bad public key: %v", p.Address, err))
+			continue
 		}
 		listenPort := p.ListenPort
 		if listenPort == 0 {
@@ -205,11 +209,13 @@ func buildPeers(in []Peer) ([]wgtypes.PeerConfig, error) {
 		}
 		endpoint, err := resolveUDP(p.Endpoint, listenPort)
 		if err != nil {
-			return nil, err
+			skipped = append(skipped, fmt.Sprintf("peer %q: bad endpoint: %v", p.Address, err))
+			continue
 		}
 		ip := net.ParseIP(p.Address)
 		if ip == nil || ip.To4() == nil {
-			return nil, fmt.Errorf("wg: invalid peer address %q", p.Address)
+			skipped = append(skipped, fmt.Sprintf("peer: invalid address %q", p.Address))
+			continue
 		}
 		allowedIPs := []net.IPNet{{IP: ip.To4(), Mask: net.CIDRMask(32, 32)}}
 		out = append(out, wgtypes.PeerConfig{
@@ -220,7 +226,7 @@ func buildPeers(in []Peer) ([]wgtypes.PeerConfig, error) {
 			ReplaceAllowedIPs:           true,
 		})
 	}
-	return out, nil
+	return out, skipped
 }
 
 func resolveUDP(host string, port int) (*net.UDPAddr, error) {

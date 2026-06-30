@@ -66,14 +66,14 @@ func TestParseAddress_Empty(t *testing.T) {
 
 func TestBuildPeers_HappyPath(t *testing.T) {
 	peerKey, _ := wgtypes.GenerateKey()
-	peers, err := buildPeers([]Peer{{
+	peers, skipped := buildPeers([]Peer{{
 		PublicKey:  peerKey.String(),
 		Endpoint:   "203.0.113.5",
 		ListenPort: 51820,
 		Address:    "10.10.0.4",
 	}})
-	if err != nil {
-		t.Fatal(err)
+	if len(skipped) != 0 {
+		t.Fatalf("skipped: %v", skipped)
 	}
 	if len(peers) != 1 {
 		t.Fatalf("peers: %d", len(peers))
@@ -91,25 +91,25 @@ func TestBuildPeers_HappyPath(t *testing.T) {
 }
 
 func TestBuildPeers_RejectsBadKey(t *testing.T) {
-	_, err := buildPeers([]Peer{{PublicKey: "not-a-key", Endpoint: "1.2.3.4", Address: "10.10.0.4"}})
-	if err == nil || !strings.Contains(err.Error(), "parse peer key") {
-		t.Fatalf("expected parse error, got %v", err)
+	peers, skipped := buildPeers([]Peer{{PublicKey: "not-a-key", Endpoint: "1.2.3.4", Address: "10.10.0.4"}})
+	if len(peers) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0], "public key") {
+		t.Fatalf("expected skipped bad key, got peers=%d skipped=%v", len(peers), skipped)
 	}
 }
 
 func TestBuildPeers_RejectsBadAddress(t *testing.T) {
 	peerKey, _ := wgtypes.GenerateKey()
-	_, err := buildPeers([]Peer{{PublicKey: peerKey.String(), Endpoint: "1.2.3.4", Address: "not-an-ip"}})
-	if err == nil || !strings.Contains(err.Error(), "invalid peer address") {
-		t.Fatalf("expected invalid address, got %v", err)
+	peers, skipped := buildPeers([]Peer{{PublicKey: peerKey.String(), Endpoint: "1.2.3.4", Address: "not-an-ip"}})
+	if len(peers) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0], "address") {
+		t.Fatalf("expected skipped bad address, got peers=%d skipped=%v", len(peers), skipped)
 	}
 }
 
 func TestBuildPeers_RejectsEmptyEndpoint(t *testing.T) {
 	peerKey, _ := wgtypes.GenerateKey()
-	_, err := buildPeers([]Peer{{PublicKey: peerKey.String(), Address: "10.10.0.4"}})
-	if err == nil {
-		t.Fatal("expected error")
+	peers, skipped := buildPeers([]Peer{{PublicKey: peerKey.String(), Address: "10.10.0.4"}})
+	if len(peers) != 0 || len(skipped) != 1 || !strings.Contains(skipped[0], "endpoint") {
+		t.Fatalf("expected skipped empty endpoint, got peers=%d skipped=%v", len(peers), skipped)
 	}
 }
 
