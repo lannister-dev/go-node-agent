@@ -184,7 +184,11 @@ func (a *EntryProxyActions) RebuildFromStore(ctx context.Context) error {
 	}
 	a.pending.Store(pending)
 	a.users.Store(int64(len(byUser)))
-	a.log.Info("entry proxy rebuilt from store", "users", len(byUser), "pending", pending)
+	if len(byUser) == 0 {
+		a.log.Warn("entry proxy rebuilt with zero users — store empty or all placements filtered; node will keep requesting snapshots")
+	} else {
+		a.log.Info("entry proxy rebuilt from store", "users", len(byUser), "pending", pending)
+	}
 	return nil
 }
 

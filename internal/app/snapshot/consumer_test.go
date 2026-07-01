@@ -233,6 +233,23 @@ func TestConsumer_LastChunkRebuildsAndPublishesSyncReport(t *testing.T) {
 	}
 }
 
+func TestConsumer_EmptySnapshotDoesNotPruneStore(t *testing.T) {
+	store := newMemStore()
+	_ = store.PutPlacement(t.Context(), domain.Placement{
+		ID: "p-keep", ClientID: "u-1", Desired: domain.DesiredActive,
+		BackendNodeID: "b-1", OpVersion: 5,
+	})
+	c := newConsumer(t, store, &fakeRebuilder{}, &fakePub{})
+
+	if err := c.Handle(t.Context(), ports.Msg{Data: chunkJSON([]map[string]any{}, 0, true, "snap-empty")}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(store.all()) != 1 {
+		t.Fatalf("empty snapshot must not prune last-known-good; store size=%d", len(store.all()))
+	}
+}
+
 func TestConsumer_StaleOpVersionSkipped(t *testing.T) {
 	store := newMemStore()
 	_ = store.PutPlacement(t.Context(), domain.Placement{

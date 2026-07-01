@@ -177,6 +177,11 @@ func (c *Consumer) pruneAbsent(ctx context.Context, snapshotID string) (int, err
 	if currentSnap != snapshotID {
 		return 0, nil
 	}
+	if len(seen) == 0 {
+		c.log.Warn("snapshot brought zero items; skipping prune to preserve last-known-good state",
+			"snapshot_id", snapshotID)
+		return 0, nil
+	}
 	all, err := c.store.ListPlacements(ctx)
 	if err != nil {
 		return 0, err
